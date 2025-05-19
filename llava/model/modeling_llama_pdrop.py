@@ -1292,6 +1292,10 @@ class LlamaModel(LlamaPreTrainedModel):
         self, cur_num, rank_layer, features ,
         position_ids, attention_mask, labels
     ):
+        
+        # features=features+torch.randn(
+        #     features.shape, dtype=features.dtype
+        # ).to(features.device)*0.1
 
         _labels = labels
         _position_ids = position_ids
@@ -1402,6 +1406,32 @@ class LlamaModel(LlamaPreTrainedModel):
 
                 
                 # rank and drop by attention score
+
+                # # 1. Get the top 100 largest values and their indices
+                # topk_values, topk_indices = torch.topk(attention_avg_text, k=keep_length[i])
+
+                # # 2. Create a mask to select the remaining (non-top-100) indices
+                # all_indices = torch.arange(attention_avg_text.size(0))
+                # remaining_mask = torch.ones_like(all_indices, dtype=torch.bool)
+                # remaining_mask[topk_indices] = False
+                # remaining_indices = all_indices[remaining_mask]
+
+                # # 3. Randomly shuffle the remaining indices
+                # shuffled_indices = remaining_indices[torch.randperm(remaining_indices.size(0))].to(topk_indices.device)
+                # topk_indices = topk_indices[torch.randperm(topk_indices.size(0))].to(topk_indices.device)
+
+                # # 4. Concatenate top 100 indices with the shuffled remaining indices
+                # final_indices = torch.cat([topk_indices, shuffled_indices], dim=0)
+
+                # # 5. Reorder the original tensor according to the new index order
+                # attention_avg_text = attention_avg_text[final_indices]
+
+                # top_rank_index=torch.arange(keep_length[i])
+                print(
+                    (attention_avg_text.topk(2).values.sum()/attention_avg_text.sum()).item(),
+                    (attention_avg_text.topk(20).values.sum()/attention_avg_text.sum()).item(),
+                    (attention_avg_text.topk(50).values.sum()/attention_avg_text.sum()).item(),
+                )
                 top_rank_index = attention_avg_text.topk(keep_length[i]).indices
                 top_rank_index = top_rank_index + image_index  
                 top_rank_index= top_rank_index.sort().values  
@@ -1448,6 +1478,16 @@ class LlamaModel(LlamaPreTrainedModel):
 
             new_input_embeds = torch.stack(embeds_padded,dim=0)
             new_input_embeds = new_input_embeds.to(features[0].dtype)
+
+            # new_input_embeds=new_input_embeds+torch.randn(
+            #     new_input_embeds.shape, dtype=new_input_embeds.dtype
+            # ).to(new_input_embeds.device)*0.01
+            
+            # for i in range(new_input_embeds.shape[0]):
+            #     image_idx=torch.arange(image_index, image_index+keep_length[i])
+            #     image_idx=image_idx[torch.randperm(image_idx.size(0))]
+            #     new_idx=torch.cat([torch.arange(image_index), image_idx, torch.arange(image_index+keep_length[i], new_input_embeds.shape[1])])
+            #     new_input_embeds = new_input_embeds[:,new_idx, :]
 
             new_attention_mask = torch.stack(attention_mask_padded,dim=0)
             new_labels = torch.stack(labels_paded,dim=0)
@@ -1598,7 +1638,7 @@ class LlamaForCausalLM(LlamaPreTrainedModel):
             if isinstance(past_key_values, Cache):
                 cache_length = past_key_values.get_seq_length()
                 past_length = past_key_values.seen_tokens
-                max_cache_length = past_key_values.get_max_length()
+                max_cache_length = past_key_values.get_max_cache_shape()
             else:
                 cache_length = past_length = past_key_values[0][0].shape[2]
                 max_cache_length = None

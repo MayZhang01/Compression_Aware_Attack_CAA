@@ -251,10 +251,10 @@ class LlavaLlamaForCausalLM_PDrop(LlavaLlamaForCausalLM):
     ) -> Union[GenerateOutput, torch.LongTensor]:
         position_ids = kwargs.pop("position_ids", None)
         attention_mask = kwargs.pop("attention_mask", None)
-        if "inputs_embeds" in kwargs:
-            raise NotImplementedError("`inputs_embeds` is not supported")
+        # if "inputs_embeds" in kwargs:
+        #     raise NotImplementedError("`inputs_embeds` is not supported")
         
-        if images is not None:
+        if images is not None and "inputs_embeds" not in kwargs:
             (
                 input_ids,
                 position_ids,
@@ -271,6 +271,8 @@ class LlavaLlamaForCausalLM_PDrop(LlavaLlamaForCausalLM):
                 images,
                 image_sizes
             )
+        elif "inputs_embeds" in kwargs:
+            inputs_embeds=kwargs.pop("inputs_embeds", None)
         else:
             self.model.image_token_posi = [-1]     
             self.model.prompt_len = None
