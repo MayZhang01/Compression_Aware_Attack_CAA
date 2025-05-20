@@ -101,9 +101,10 @@ def eval_model(args):
     model_class_name = type(model).__name__
 
     questions = [json.loads(q) for q in open(os.path.expanduser(args.question_file), "r")]
-    random.seed(123)
+    random.seed(124)
     random.shuffle(questions)
-    questions = questions[0:20]
+    questions = questions[0:200]
+    # questions = questions[150:200]
     questions = get_chunk(questions, args.num_chunks, args.chunk_idx)
     answers_file = os.path.expanduser(args.answers_file)
     os.makedirs(os.path.dirname(answers_file), exist_ok=True)
@@ -115,6 +116,7 @@ def eval_model(args):
 
     data_loader = create_data_loader(questions, args.image_folder, tokenizer, image_processor, model.config, conv_mode=args.conv_mode)
     count, count2=0, 0
+    total=0
     succ_list=[]
     for (input_ids, image_tensor, image_sizes), line in tqdm(zip(data_loader, questions), total=len(questions)):
         idx = line["question_id"]
@@ -141,15 +143,18 @@ def eval_model(args):
             )
             ori_prompt_len=model.model.prompt_len[0]
         
-        adv_input_embeds, adv_num=opt_adv_pro(
+        adv_input_embeds, adv_num, flag=opt_adv_pro(
             model, new_input_embeds, position_ids, attention_mask,
             image_shape=576,        
             token_length_list=[new_input_embeds.shape[1]],  
             pre_prompt_length_list=[torch.where(input_ids==-200)[1][0].item()], 
             target_layer_idx=1, 
-            adv_steps=10, 
-            adv_lr=1e-2
+            adv_steps=30, 
+            adv_lr=5e-3
         )
+
+        if flag:
+            total+=1
 
         with torch.inference_mode():
             if model_class_name == "LlavaLlamaForCausalLM_PDrop":
@@ -219,9 +224,9 @@ def eval_model(args):
         else:
             print()
             succ_list.append(idx)
-    print(1-count/len(questions), 1-count2/len(questions))
-    for id in succ_list:
-        print(id)
+    print(1-count/total, 1-count2/total)
+    # for id in succ_list:
+    #     print(id)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
