@@ -4,6 +4,15 @@ from transformers.models.llama.modeling_llama import apply_rotary_pos_emb
 import math
 from torch.optim.lr_scheduler import StepLR
 
+
+
+def judge_adv(output_c, output_nc):
+    if output_c==output_nc:
+        return True
+    elif output_c.find(output_nc)>-1:# and len(output_c)<len(output_nc)*2:
+        return True
+    return False
+
 def trace_transformer_layers_grad(
     model,
     inputs_embeds,
@@ -206,7 +215,9 @@ def opt_adv_pro(
         pre_prompt_length_list,   
         target_layer_idx=1, 
         adv_steps=20, 
-        adv_lr=1e-1
+        adv_lr=1e-1,
+        stop_ths=[],
+        alpha=1,
     ):
 
     device = input_embeds.device
@@ -233,7 +244,7 @@ def opt_adv_pro(
         scheduler = StepLR(optimizer, step_size=10, gamma=0.5)
     with torch.no_grad():
         
-        ben_hidden_states_list_nc, ben_attn_map_list_nc, ben_attn_logits_list_nc= trace_transformer_layers_grad(
+        _, ben_attn_map_list_nc, _= trace_transformer_layers_grad(
             model, #input_embeds,
             torch.cat([fixed_input_embeds, input_embeds[:,-adv_num:]], dim=1), 
             attention_mask,
@@ -247,17 +258,17 @@ def opt_adv_pro(
         _, topk_v_idx = torch.topk(ben_attn_v_mean, k=v_token_num)
         ben_attn_v_last_mean=ben_attn_map_list_nc[-1].mean(1)[0,-1,v_token_start:v_token_start+v_token_num]
         _, topk_v_last = torch.topk(ben_attn_v_last_mean, k=v_token_num)
-        i_r=intersection_ratio(topk_v_last[:5],topk_v_idx[:50], )
+        i_r =intersection_ratio(topk_v_last[:5], topk_v_idx[:50], )
         i_r1=intersection_ratio(topk_v_last[:10],topk_v_idx[:50], )
         i_r2=intersection_ratio(topk_v_last[:50],topk_v_idx[:50], )
-        i_r3=intersection_ratio(topk_v_last[:50],topk_v_idx[:100], )
-        print('ratio', i_r, i_r1, i_r2,i_r3)
+        i_r3=intersection_ratio(topk_v_last[:50],topk_v_idx[:100],)
+        print('ratio', i_r, i_r1, i_r2, i_r3)
         # ben_attn_p_mean=ben_attn_map_list_nc[target_layer_idx].mean(1)[0,-1,:v_token_start]
         # _, topk_p_idx = torch.topk(ben_attn_p_mean, k=v_token_start)
 
         # # 2. Create a mask to select the remaining (non-top-100) indices
         # topk_v_idx=topk_v_idx+v_token_start
-        topk_v_last=topk_v_last+v_token_start
+        topk_v_last = topk_v_last+v_token_start
         all_indices = torch.arange(ben_attn_map_list_nc[target_layer_idx].size(3))
         
         # up_mask_p   = torch.zeros_like(all_indices, dtype=torch.bool)
@@ -267,33 +278,33 @@ def opt_adv_pro(
 
         up_mask_v   = torch.zeros_like(all_indices, dtype=torch.bool)
         down_mask_v = torch.zeros_like(all_indices, dtype=torch.bool)
-        up_mask_v[topk_v_last[50:100]] = True
+        up_mask_v[topk_v_last[50:100]]  = True
         down_mask_v[topk_v_last[20:50]] = True
 
-        # up_mask_v2   = torch.zeros_like(all_indices, dtype=torch.bool)
+        # up_mask_v2  = torch.zeros_like(all_indices, dtype=torch.bool)
         # keep_mask_v = torch.zeros_like(all_indices, dtype=torch.bool)
         # up_mask_v2[topk_v_last[50:100]] = True
-        # keep_mask_v[topk_v_last[0:5]] = True
-        # keep_mask_v[topk_v_last[200:]] = True
+        # keep_mask_v[topk_v_last[0:5]]   = True
+        # keep_mask_v[topk_v_last[200:]]  = True
 
         # keep_v_logits_ben = get_attn_mean(
         #     ben_attn_logits_list_nc[target_layer_idx],
         #     range=keep_mask_v
         # )
 
-        last_attn_logits_nc = ben_attn_map_list_nc[-1]
-        last_attn_map_mean=last_attn_logits_nc.mean(1)
-        last_down_v_logits = get_attn_mean(
+        last_attn_map_nc = ben_attn_map_list_nc[-1]
+        last_attn_map_mean=last_attn_map_nc.mean(1)
+        last_down_v_map = get_attn_mean(
             last_attn_map_mean, 
             range=down_mask_v
         )
-        last_up_v_logits1 = get_attn_mean(
+        last_up_v_map = get_attn_mean(
             last_attn_map_mean, 
             range=up_mask_v
         )
         print(' ',
-            round(last_up_v_logits1.max().item(),5), round(last_up_v_logits1.min().item(),5),
-            round(last_down_v_logits.max().item(),5), round(last_down_v_logits.min().item(),5)
+            round(last_up_v_map.max().item(),5), round(last_up_v_map.min().item(),5),
+            round(last_down_v_map.max().item(),5), round(last_down_v_map.min().item(),5)
         )
     
     flag=False
@@ -324,7 +335,6 @@ def opt_adv_pro(
             # -loss_keep*0.03
         )
         
-        alpha=0.9
         loss = alpha*loss_cur
         
         optimizer.zero_grad()
@@ -345,38 +355,46 @@ def opt_adv_pro(
         # adv_token.data  = torch.max(torch.min(adv_token.data , ori_adv_token.data + epsilon), ori_adv_token.data - epsilon)
 
         with torch.no_grad():
-            last_hidden_states_list_nc, last_attn_map_list_nc, last_attn_logits_list_nc= trace_transformer_layers_grad(
+            _, last_attn_map_list_nc, _= trace_transformer_layers_grad(
                 model, hidden_states_list_nc[target_layer_idx], attention_mask,
                 start_layer=target_layer_idx+1,  
                 return_all=True,
             )
-            last_attn_logits_nc = last_attn_map_list_nc[-1]
-            last_attn_map_mean=last_attn_logits_nc.mean(1)
-            last_down_v_logits = get_attn_mean(
+            last_attn_map_nc = last_attn_map_list_nc[-1]
+            last_attn_map_mean=last_attn_map_nc.mean(1)
+            last_down_v_map = get_attn_mean(
                 last_attn_map_mean, 
                 range=down_mask_v
             )
-            last_up_v_logits1 = get_attn_mean(
+            last_up_v_map = get_attn_mean(
                 last_attn_map_mean, 
                 range=up_mask_v
             )
             print(' ',
-                round(last_up_v_logits1.max().item(),5), round(last_up_v_logits1.min().item(),5),
-                round(last_down_v_logits.max().item(),5), round(last_down_v_logits.min().item(),5)
+                round(last_up_v_map.max().item(),5), round(last_up_v_map.min().item(),5),
+                round(last_down_v_map.max().item(),5), round(last_down_v_map.min().item(),5)
             )
+        
         if (
-            last_up_v_logits1.max().item()>last_down_v_logits.max().item()*0.9 
+            last_up_v_map.max().item()>last_down_v_map.max().item()*stop_ths[0]
         ) and (
-            last_up_v_logits1.max().item()>0.002
+            last_up_v_map.min().item()>last_down_v_map.min().item()*stop_ths[1]
         ) and (
-            last_up_v_logits1.min().item()>last_down_v_logits.min().item()*0.8
+            last_up_v_map.max().item()>stop_ths[2]
         ):
+            # if last_down_v_map.max().item()>0.0023:
+            #     if last_up_v_map.max().item()>0.002:
+            #         flag=True
+            #         break
+            # else:
             flag=True
             break
         
-        # del loss, loss_next, loss_t, loss_cur
-        # del attn_logits_list_nc, v_t, t_t, m_v_t
-    
+        del loss, loss_cur, attn_logits_nc,attn_map_mean,down_v_logits
+        del last_attn_map_mean
+        del attn_logits_list_nc
+        del last_attn_map_list_nc, hidden_states_list_nc
+
     # adv_token.data = adv_token.data+torch.randn(
     #     adv_token.shape, dtype=adv_token.dtype
     # ).to(adv_token.device)*0.001

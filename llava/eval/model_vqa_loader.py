@@ -14,8 +14,8 @@ from torch.utils.data import Dataset, DataLoader
 
 from PIL import Image
 import math
-from llava.eval.find_adv import opt_adv_pro
 import random
+from llava.eval.find_adv import opt_adv_pro, judge_adv
 
 def split_list(lst, n):
     """Split a list into n (roughly) equal-sized chunks"""
@@ -77,13 +77,6 @@ def create_data_loader(questions, image_folder, tokenizer, image_processor, mode
     data_loader = DataLoader(dataset, batch_size=batch_size, num_workers=num_workers, shuffle=False, collate_fn=collate_fn)
     return data_loader
 
-def judge_adv(output_c, output_nc):
-    if output_c==output_nc:
-        return True
-    elif output_c.find(output_nc)>-1:# and len(output_c)<len(output_nc)*2:
-        return True
-    return False
-
 def eval_model(args):
     # Model
     disable_torch_init()
@@ -103,12 +96,12 @@ def eval_model(args):
     questions = [json.loads(q) for q in open(os.path.expanduser(args.question_file), "r")]
     random.seed(124)
     random.shuffle(questions)
-    questions = questions[0:200]
+    questions = questions[0:20]
     # questions = questions[150:200]
     questions = get_chunk(questions, args.num_chunks, args.chunk_idx)
-    answers_file = os.path.expanduser(args.answers_file)
-    os.makedirs(os.path.dirname(answers_file), exist_ok=True)
-    ans_file = open(answers_file, "w")
+    # answers_file = os.path.expanduser(args.answers_file)
+    # os.makedirs(os.path.dirname(answers_file), exist_ok=True)
+    # ans_file = open(answers_file, "w")
 
     if 'plain' in model_name and 'finetune' not in model_name.lower() and 'mmtag' not in args.conv_mode:
         args.conv_mode = args.conv_mode + '_mmtag'
@@ -149,8 +142,10 @@ def eval_model(args):
             token_length_list=[new_input_embeds.shape[1]],  
             pre_prompt_length_list=[torch.where(input_ids==-200)[1][0].item()], 
             target_layer_idx=1, 
-            adv_steps=30, 
-            adv_lr=5e-3
+            adv_steps=30, #30
+            adv_lr=5e-3,
+            stop_ths=[0.9, 0.8, 0.002],
+            alpha=0.9
         )
 
         if flag:
@@ -179,7 +174,7 @@ def eval_model(args):
         with torch.inference_mode():
             if model_class_name == "LlavaLlamaForCausalLM_PDrop":
                 model.model.layer_list = [2]
-                model.model.image_token_ratio_list = [0.1]
+                model.model.image_token_ratio_list = [0.3]
                 model.model.image_token_ratio_list.insert(0, 1.0)
             model.model.prompt_len[0]=ori_prompt_len+adv_num
             adv_output_ids2 = model.generate(
@@ -224,7 +219,7 @@ def eval_model(args):
         else:
             print()
             succ_list.append(idx)
-    print(1-count/total, 1-count2/total)
+    print(1-count/total, 1-count2/total, total)
     # for id in succ_list:
     #     print(id)
 
