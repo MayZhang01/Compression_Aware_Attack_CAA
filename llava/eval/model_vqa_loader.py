@@ -15,7 +15,8 @@ from torch.utils.data import Dataset, DataLoader
 from PIL import Image
 import math
 import random
-from llava.eval.find_adv import opt_adv_pro, judge_adv
+from llava.eval.find_adv import opt_adv_pro, judge_adv, opt_adv_image_token
+from llava.eval.utils import Logger
 
 def split_list(lst, n):
     """Split a list into n (roughly) equal-sized chunks"""
@@ -93,6 +94,7 @@ def eval_model(args):
 
     model_class_name = type(model).__name__
 
+    logger=Logger()
     questions = [json.loads(q) for q in open(os.path.expanduser(args.question_file), "r")]
     random.seed(124)
     random.shuffle(questions)
@@ -131,25 +133,25 @@ def eval_model(args):
                 _,  
             ) = model.prepare_inputs_labels_for_multimodal_pdrop(       
                 input_ids, position_ids=None, attention_mask=None, past_key_values=None, labels=None,
-                images=image_tensor.to(dtype=torch.float16, device='cuda', non_blocking=True), 
-                image_sizes=image_sizes
+                images=torch.tensor([0]),#image_tensor.to(dtype=torch.float16, device='cuda', non_blocking=True), 
+                image_sizes=image_sizes,
+                image_feature_size=(1,576,4096)
             )
             ori_prompt_len=model.model.prompt_len[0]
         
-        adv_input_embeds, adv_num, flag=opt_adv_pro(
+        adv_input_embeds, adv_num, flag=opt_adv_image_token(
             model, new_input_embeds, position_ids, attention_mask,
+            images=image_tensor.to(dtype=torch.float16, device='cuda', non_blocking=True), 
             image_shape=576,        
             token_length_list=[new_input_embeds.shape[1]],  
             pre_prompt_length_list=[torch.where(input_ids==-200)[1][0].item()], 
-            target_layer_idx=1, 
-            adv_steps=30, #30
-            adv_lr=5e-3,
-            stop_ths=[0.9, 0.8, 0.002],
-            alpha=0.9
+            target_layer_idx=2, 
+            adv_steps=50, #30
+            adv_lr=5,#5e-3,
+            stop_ths=[3, 1, 0.005],#[0.9, 0.8, 0.002],
+            alpha=0.9,
+            logger=logger
         )
-
-        if flag:
-            total+=1
 
         with torch.inference_mode():
             if model_class_name == "LlavaLlamaForCausalLM_PDrop":
@@ -174,7 +176,7 @@ def eval_model(args):
         with torch.inference_mode():
             if model_class_name == "LlavaLlamaForCausalLM_PDrop":
                 model.model.layer_list = [2]
-                model.model.image_token_ratio_list = [0.3]
+                model.model.image_token_ratio_list = [0.1]
                 model.model.image_token_ratio_list.insert(0, 1.0)
             model.model.prompt_len[0]=ori_prompt_len+adv_num
             adv_output_ids2 = model.generate(
@@ -210,16 +212,19 @@ def eval_model(args):
                 use_cache=True
             )
         outputs = tokenizer.batch_decode(output_ids, skip_special_tokens=True)[0].strip()
-        print(idx, ':', cur_prompt)
-        print(outputs, '---', adv_outputs, '---', adv_outputs2)
-        if judge_adv(output_nc=outputs, output_c=adv_outputs):# or adv_outputs.find(outputs.lower())>-1
-            count+=1
-        if judge_adv(output_nc=outputs, output_c=adv_outputs2):# or adv_outputs.find(outputs.lower())>-1
-            count2+=1
-        else:
-            print()
-            succ_list.append(idx)
-    print(1-count/total, 1-count2/total, total)
+        logger.print_log(idx, ':', cur_prompt.replace('\n', ' '))
+        logger.print_log(outputs, '---', adv_outputs, '---', adv_outputs2)
+        nc_rlt = judge_adv(output_nc=outputs, output_c=adv_outputs)
+        c_rlt  = judge_adv(output_nc=outputs, output_c=adv_outputs2)
+        if flag or (nc_rlt==True and c_rlt==False):
+            if nc_rlt:
+                count+=1
+            if c_rlt:
+                count2+=1
+            else:
+                succ_list.append(idx)
+            total+=1
+    logger.print_log(1-count/total, 1-count2/total, total)
     # for id in succ_list:
     #     print(id)
 

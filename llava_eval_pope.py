@@ -23,7 +23,7 @@ args = type('Args', (), {
     "chunk_idx":0,
     # "top_p":None,
     "num_beams":1,
-    "max_new_tokens":10,
+    "max_new_tokens":5,
     "layer_list":'[2]',
     "image_token_ratio_list":"[1]",
 })()

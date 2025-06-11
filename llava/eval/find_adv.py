@@ -5,7 +5,6 @@ import math
 from torch.optim.lr_scheduler import StepLR
 
 
-
 def judge_adv(output_c, output_nc):
     if output_c==output_nc:
         return True
@@ -208,11 +207,17 @@ def intersection_ratio(a: torch.Tensor, b: torch.Tensor) -> float:
     ratio = num_match / total
     return ratio
 
+def get_adv_embed(benign_embed, adv_embed, start_idx=None, end_idx=None):
+    # adv_input_embeds=torch.cat([benign_embed, adv_embed], dim=1)#
+    adv_input_embeds=torch.cat([benign_embed[:, 0:start_idx], adv_embed, benign_embed[:, end_idx:]], dim=1)#
+    return adv_input_embeds
+
 def opt_adv_pro(
         model, input_embeds, position_ids, attention_mask,
         image_shape,        
         token_length_list,  
-        pre_prompt_length_list,   
+        pre_prompt_length_list, 
+        image=None,  
         target_layer_idx=1, 
         adv_steps=20, 
         adv_lr=1e-1,
@@ -229,7 +234,11 @@ def opt_adv_pro(
     ben_layer=2
     adv_num=1
     
-    adv_token = input_embeds[:,-adv_num:].detach().clone()
+    # image_features=model.encode_images(image)
+    # adv_image = image.detach().clone()
+    # adv_token = image_features.detach().clone()
+    # adv_token = input_embeds[:,-adv_num:].detach().clone()
+    adv_token = input_embeds[:,v_token_start:text_token_start].detach().clone()
     ori_adv_token = adv_token.detach().clone()
     torch.manual_seed(123)                   
     torch.cuda.manual_seed(123)
@@ -246,7 +255,11 @@ def opt_adv_pro(
         
         _, ben_attn_map_list_nc, _= trace_transformer_layers_grad(
             model, #input_embeds,
-            torch.cat([fixed_input_embeds, input_embeds[:,-adv_num:]], dim=1), 
+            # torch.cat([fixed_input_embeds, input_embeds[:,-adv_num:]], dim=1), 
+            get_adv_embed(
+                fixed_input_embeds, adv_token, 
+                start_idx=v_token_start, end_idx=text_token_start
+            ),
             attention_mask,
             start_layer=0,
             end_layer=None,  
@@ -309,7 +322,11 @@ def opt_adv_pro(
     
     flag=False
     for step in range(adv_steps):
-        adv_input_embeds=torch.cat([fixed_input_embeds, adv_token], dim=1)#
+        # adv_input_embeds=torch.cat([fixed_input_embeds, adv_token], dim=1)#
+        adv_input_embeds=get_adv_embed(
+            fixed_input_embeds, adv_token, 
+            start_idx=v_token_start, end_idx=text_token_start
+        )
         
         hidden_states_list_nc, attn_map_list_nc, attn_logits_list_nc= trace_transformer_layers_grad(
             model, adv_input_embeds, attention_mask,
@@ -371,6 +388,7 @@ def opt_adv_pro(
                 range=up_mask_v
             )
             print(' ',
+                round(last_up_v_map.mean().item(),5), round(last_down_v_map.mean().item(),5),
                 round(last_up_v_map.max().item(),5), round(last_up_v_map.min().item(),5),
                 round(last_down_v_map.max().item(),5), round(last_down_v_map.min().item(),5)
             )
@@ -398,5 +416,228 @@ def opt_adv_pro(
     # adv_token.data = adv_token.data+torch.randn(
     #     adv_token.shape, dtype=adv_token.dtype
     # ).to(adv_token.device)*0.001
-    new_input_embeds=torch.cat([fixed_input_embeds, adv_token], dim=1)#
+    # new_input_embeds=torch.cat([fixed_input_embeds, adv_token], dim=1)#
+    new_input_embeds=get_adv_embed(
+        fixed_input_embeds, adv_token, 
+        start_idx=v_token_start, end_idx=text_token_start
+    )
+    return new_input_embeds, new_input_embeds.shape[1]-input_embeds.shape[1], flag
+
+
+
+def cat_adv_embed(benign_embed, adv_image_embed, adv_text_embed=None, start_idx=None, end_idx=None):
+    cat_embedding=[
+        benign_embed[:, 0:start_idx], adv_image_embed, benign_embed[:, end_idx:]
+    ]
+    if adv_text_embed is not None:
+        cat_embedding.append(adv_text_embed)
+    adv_input_embeds=torch.cat(cat_embedding, dim=1)
+    return adv_input_embeds
+
+def opt_adv_image_token(
+        model, input_embeds, position_ids, attention_mask,
+        image_shape,        
+        token_length_list,  
+        pre_prompt_length_list, 
+        images=None,  
+        t_token=None,
+        target_layer_idx=1, 
+        adv_steps=20, 
+        adv_lr=1e-1,
+        stop_ths=[],
+        alpha=1,
+        logger=None,
+    ):
+
+    device = input_embeds.device
+    dtype=input_embeds.dtype
+    embed_dim = input_embeds.shape[-1]
+    v_token_num = image_shape
+    v_token_start = pre_prompt_length_list[0] if len(pre_prompt_length_list) != 0 else 0 
+    text_token_start = v_token_start + image_shape 
+
+    ben_layer=2
+    adv_num=1
+    epsilon=128/255
+    image_max=images.max()
+    
+    # adv_perturbs = torch.rand_like(images, dtype=dtype, device=device)
+    # adv_perturbs = (adv_perturbs-0.5)*2*images.max()
+    # adv_perturbs = adv_perturbs*epsilon
+    
+    adv_perturbs = torch.zeros_like(images, dtype=dtype, device=device)
+    torch.manual_seed(123)                   
+    torch.cuda.manual_seed(123)
+    # adv_token.data = adv_token.data+torch.randn(
+    #     adv_token.shape, dtype=adv_token.dtype
+    # ).to(adv_token.device)*0.01
+    fixed_input_embeds = input_embeds.detach()#[:,:-1]
+
+    all_token_embedding = model.get_input_embeddings().weight
+    vocab_size, emb_dim=all_token_embedding.shape
+    adv_token_logit = torch.randn((adv_num, vocab_size), device=device, dtype=dtype)
+    # adv_token_logit = (adv_token_logit-0.5)*2
+    # adv_token_logit[:, 29901]=adv_token_logit.max()+15
+    flag=True
+    if adv_steps>0: 
+        adv_perturbs.requires_grad_(True)
+        adv_token_logit.requires_grad_(True)
+        optimizer = torch.optim.SGD([adv_perturbs], lr=adv_lr)#, adv_token_logit
+        scheduler = StepLR(optimizer, step_size=20, gamma=0.5)
+        # flag=False
+    
+    with torch.no_grad():    
+        ben_image_embeds=model.encode_images(images)#+adv_perturbs
+        ben_input_embeds=cat_adv_embed(
+            fixed_input_embeds, ben_image_embeds, 
+            # fixed_input_embeds[:, -adv_num:],
+            start_idx=v_token_start, end_idx=text_token_start
+        )
+        _, ben_attn_map_list_nc, _= trace_transformer_layers_grad(
+            model,  
+            ben_input_embeds,
+            attention_mask,
+            start_layer=0,
+            end_layer=None,  
+            return_all=True,
+            v_token_start=v_token_start,
+            v_token_num=v_token_num,
+        )
+        ben_attn_v_tar_mean =ben_attn_map_list_nc[target_layer_idx].mean(1)[0, -1 ,v_token_start:v_token_start+v_token_num]#
+        ben_attn_v_last_mean=ben_attn_map_list_nc[-1].mean(1)[0,-1,v_token_start:v_token_start+v_token_num]#
+        _, topk_v_last = torch.topk(ben_attn_v_last_mean, k=v_token_num)
+        _, topk_v_tar  = torch.topk(ben_attn_v_tar_mean, k=v_token_num)
+        i_r =intersection_ratio(topk_v_last[:5],  topk_v_tar[:50], )
+        i_r1=intersection_ratio(topk_v_last[:10], topk_v_tar[:50], )
+        i_r2=intersection_ratio(topk_v_last[:50], topk_v_tar[:50], )
+        i_r3=intersection_ratio(topk_v_last[:50], topk_v_tar[:100],)
+        logger.print_log('ratio', i_r, i_r1, i_r2, i_r3)
+        
+        topk_v_last = topk_v_last+v_token_start
+        all_indices = torch.arange(ben_attn_map_list_nc[target_layer_idx].size(3))
+
+        up_mask_v   = torch.zeros_like(all_indices, dtype=torch.bool)
+        down_mask_v = torch.zeros_like(all_indices, dtype=torch.bool)
+        # up_mask_v[topk_v_last[0:20]]  = True
+        up_mask_v[topk_v_last[300:500]]  = True
+        down_mask_v[topk_v_last[50:200]] = True
+        
+        # up_mask_v[topk_v_tar[:2]]  = True
+        # up_mask_v[topk_v_tar[50:100]]  = True
+        # down_mask_v[topk_v_tar[10:50]] = True
+
+        last_attn_map_nc = ben_attn_map_list_nc[-1]
+        last_attn_map_mean=last_attn_map_nc.mean(1)
+        last_down_v_map = get_attn_mean(
+            last_attn_map_mean, 
+            range=down_mask_v
+        )
+        last_up_v_map = get_attn_mean(
+            last_attn_map_mean, 
+            range=up_mask_v
+        )
+        logger.print_log(' ',
+            round(last_up_v_map.max().item(),5), round(last_up_v_map.min().item(),5),
+            round(last_down_v_map.max().item(),5), round(last_down_v_map.min().item(),5)
+        )
+    
+    for step in range(adv_steps):
+        adv_token_distribution = F.softmax(adv_token_logit, dim=1)
+        adv_token_embeds = torch.matmul(adv_token_distribution, all_token_embedding).unsqueeze(0)#.unsqueeze(0)
+        adv_images=images+adv_perturbs
+        adv_image_embeds = model.encode_images(adv_images)
+        adv_input_embeds=cat_adv_embed(
+            fixed_input_embeds, adv_image_embeds, 
+            # adv_token_embeds, 
+            start_idx=v_token_start, end_idx=text_token_start
+        )
+        
+        hidden_states_list_nc, attn_map_list_nc, attn_logits_list_nc= trace_transformer_layers_grad(
+            model, adv_input_embeds, attention_mask,
+            end_layer=target_layer_idx,  
+            return_all=True,
+        )
+        
+        attn_logits_nc = attn_logits_list_nc[target_layer_idx]
+        attn_map_mean=attn_logits_nc.mean(1)
+        down_v_logits = get_attn_mean(
+            attn_map_mean, 
+            range=down_mask_v
+        )
+        up_v_logits = get_attn_mean(
+            attn_map_mean, 
+            range=up_mask_v
+        )
+        up_mean=up_v_logits.mean()
+        down_mean=down_v_logits.mean()
+        
+        loss_cur=(
+            -up_mean*1.3
+            +down_mean
+        )
+        
+        loss = alpha*loss_cur
+        
+        optimizer.zero_grad()
+        loss.backward()
+        
+        # adv_perturbs.grad=torch.clamp(adv_perturbs.grad, -epsilon*image_max*0.5, epsilon*image_max*0.5)
+        optimizer.step()
+        scheduler.step()
+        # adv_perturbs.data=torch.clamp(adv_perturbs.data, -epsilon*image_max, epsilon*image_max)
+
+        with torch.no_grad():
+            _, last_attn_map_list_nc, _= trace_transformer_layers_grad(
+                model, hidden_states_list_nc[target_layer_idx], attention_mask,
+                start_layer=target_layer_idx+1,  
+                return_all=True,
+            )
+            last_attn_map_nc = last_attn_map_list_nc[-1]
+            last_attn_map_mean=last_attn_map_nc.mean(1)
+            last_down_v_map = get_attn_mean(
+                last_attn_map_mean, 
+                range=down_mask_v
+            )
+            last_up_v_map = get_attn_mean(
+                last_attn_map_mean, 
+                range=up_mask_v
+            )
+        logger.print_log(
+            step, round(loss_cur.item(),3), round(up_mean.item(),3), round(down_mean.item(),3), 
+            'mean: ',
+            round(last_up_v_map.mean().item(),5), round(last_down_v_map.mean().item(),5),
+            'last_up: ',
+            round(last_up_v_map.max().item(),5),  round(last_up_v_map.min().item(),5),
+            'last_down: ',
+            round(last_down_v_map.max().item(),5),round(last_down_v_map.min().item(),5)
+        )
+        
+        # if (
+        #     last_up_v_map.max().item()>last_down_v_map.max().item()*stop_ths[0]
+        # ) and (
+        #     last_up_v_map.min().item()>last_down_v_map.min().item()*stop_ths[1]
+        # ) and (
+        #     last_up_v_map.max().item()>stop_ths[2]
+        # ):
+        #     flag=True
+        #     break
+        
+        del loss, loss_cur, attn_logits_nc, attn_map_mean, down_v_logits, up_v_logits
+        del last_attn_map_mean
+        del attn_logits_list_nc
+        del last_attn_map_list_nc, hidden_states_list_nc
+
+    # adv_token.data = adv_token.data+torch.randn(
+    #     adv_token.shape, dtype=adv_token.dtype
+    # ).to(adv_token.device)*0.001
+    with torch.no_grad():
+        adv_token_distribution = F.softmax(adv_token_logit, dim=1)
+        adv_token_embeds = torch.matmul(adv_token_distribution, all_token_embedding).unsqueeze(0)#.unsqueeze(0)
+        adv_images=images+adv_perturbs
+        adv_image_embeds = model.encode_images(adv_images)
+        new_input_embeds=cat_adv_embed(
+            fixed_input_embeds, adv_image_embeds, 
+            # adv_token_embeds, 
+            start_idx=v_token_start, end_idx=text_token_start
+        )
     return new_input_embeds, new_input_embeds.shape[1]-input_embeds.shape[1], flag
