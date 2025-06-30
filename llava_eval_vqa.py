@@ -3,7 +3,7 @@ os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 
 from llava.model.builder import load_pretrained_model
 from llava.mm_utils import get_model_name_from_path
-from llava.eval.model_vqa import eval_model
+from llava.eval.model_vqa_loader import eval_model
 import torch
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -23,7 +23,7 @@ args = type('Args', (), {
     "chunk_idx":0,
     # "top_p":None,
     "num_beams":1,
-    "max_new_tokens":10,
+    "max_new_tokens":5,
     "layer_list":'[2]',
     "image_token_ratio_list":"[1]",
 })()

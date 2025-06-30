@@ -1,7 +1,9 @@
 import logging
 import time
 import os
-
+import torch
+import torch.nn.functional as F
+import json
 class Logger:
     def __init__(self):
         # 创建以时间戳命名的日志文件名
@@ -17,7 +19,7 @@ class Logger:
         logging.basicConfig(
             filename=self.log_path,
             level=logging.INFO,  # 或 logging.DEBUG / ERROR 等
-            format="%(asctime)s - %(levelname)s - %(message)s"#
+            format="%(message)s"#%(asctime)s - %(levelname)s - 
         )
 
     def print_log(*args):
@@ -28,3 +30,35 @@ class Logger:
         logging.info(message)
         # logging.warning("这是一个警告")
         # logging.error("这是一个错误")
+
+def logits_CE(ground_logits, pred_logits, eps=1e-8):
+    # soft_targets = F.softmax(ground_logits, dim=1)  # shape: (batch_size, num_classes)
+    # soft_preds = F.softmax(pred_logits, dim=1)
+    # soft_preds = soft_preds.clamp(min=eps)
+
+    # loss = -torch.sum(soft_targets * torch.log(soft_preds), dim=1)  # shape: (batch_size,)
+    loss = torch.norm(ground_logits-pred_logits)#, dim=2)/pred_logits.shape[2]
+    mean_loss = loss.mean()
+    return mean_loss
+
+def load_json(file_path):
+    with open(file_path, 'r') as file:
+        dict_list=json.load(file)
+    return dict_list
+
+def load_jsonl(file_path):
+    dict_list=[]
+    with open(file_path, "r") as f:
+        for line in f:
+            dict_list.append(json.loads(line))
+    return dict_list
+
+def save_json(data, file_path):
+    with open(file_path, 'w', encoding='utf-8') as file:
+        json.dump(data, file, ensure_ascii=False, indent=4)
+
+def save_jsonl(data, file_path):
+    with open(file_path, "w", encoding="utf-8") as f:
+        for item in data:
+            line = json.dumps(item, ensure_ascii=False)
+            f.write(line + "\n")

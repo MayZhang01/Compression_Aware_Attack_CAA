@@ -43,6 +43,7 @@ class CustomDataset(Dataset):
         line = self.questions[index]
         image_file = line["image"]
         qs = line["text"]
+        gd = line["ground_truth"]
         if self.model_config.mm_use_im_start_end:
             qs = DEFAULT_IM_START_TOKEN + DEFAULT_IMAGE_TOKEN + DEFAULT_IM_END_TOKEN + '\n' + qs
         else:
@@ -58,17 +59,70 @@ class CustomDataset(Dataset):
 
         input_ids = tokenizer_image_token(prompt, self.tokenizer, IMAGE_TOKEN_INDEX, return_tensors='pt')
 
-        return input_ids, image_tensor, image.size
+        return input_ids, image_tensor, image.size, gd
 
     def __len__(self):
         return len(self.questions)
 
+class Counter:
+    def __init__(self):
+        self.TP,   self.FP,   self.TN,   self.FN   =0,0,0,0
+        self.TP_c, self.FP_c, self.TN_c, self.FN_c =0,0,0,0
+        self.TP_nc,self.FP_nc,self.TN_nc,self.FN_nc=0,0,0,0
+        self.total=0
+    def get_metric(self):
+        return {
+            'TPR':round(self.TP/(self.TP+self.FN+1e-8),3), 
+            'TNR':round(self.TN/(self.TN+self.FP+1e-8),3), 
+            'ACC':round((self.TP+self.TN)/self.total,3),
+        }
+    def get_metric_nc(self):
+        return {
+            'TPR_nc':round(self.TP_nc/(self.TP_nc+self.FN_nc+1e-8),3), 
+            'TNR_nc':round(self.TN_nc/(self.TN_nc+self.FP_nc+1e-8),3), 
+            'ACC_nc':round((self.TP_nc+self.TN_nc)/self.total,3),
+        }
+    def get_metric_c(self):
+        return {
+            'TPR_c':round(self.TP_c/(self.TP_c+self.FN_c+1e-8),3), 
+            'TNR_c':round(self.TN_c/(self.TN_c+self.FP_c+1e-8),3), 
+            'ACC_c':round((self.TP_c+self.TN_c)/self.total,3),
+        }
+    def add_rlt(self, gd, ori, c, nc):
+        self.total+=1
+        if gd=='Yes':
+            if judge_adv(ori, gd):
+                self.TP+=1
+            else:
+                self.FN+=1
+            if judge_adv(c, gd):
+                self.TP_c+=1
+            else:
+                self.FN_c+=1
+            if judge_adv(nc, gd):
+                self.TP_nc+=1
+            else:
+                self.FN_nc+=1
+        else:
+            if judge_adv(ori, gd):
+                self.TN+=1
+            else:
+                self.FP+=1
+            if judge_adv(c, gd):
+                self.TN_c+=1
+            else:
+                self.FP_c+=1
+            if judge_adv(nc, gd):
+                self.TN_nc+=1
+            else:
+                self.FP_nc+=1
+
 
 def collate_fn(batch):
-    input_ids, image_tensors, image_sizes = zip(*batch)
+    input_ids, image_tensors, image_sizes, gd = zip(*batch)
     input_ids = torch.stack(input_ids, dim=0)
     image_tensors = torch.stack(image_tensors, dim=0)
-    return input_ids, image_tensors, image_sizes
+    return input_ids, image_tensors, image_sizes, gd
 
 
 # DataLoader
@@ -98,7 +152,7 @@ def eval_model(args):
     questions = [json.loads(q) for q in open(os.path.expanduser(args.question_file), "r")]
     random.seed(124)
     random.shuffle(questions)
-    questions = questions[0:20]
+    questions = questions[0:50]
     # questions = questions[150:200]
     questions = get_chunk(questions, args.num_chunks, args.chunk_idx)
     # answers_file = os.path.expanduser(args.answers_file)
@@ -113,7 +167,12 @@ def eval_model(args):
     count, count2=0, 0
     total=0
     succ_list=[]
-    for (input_ids, image_tensor, image_sizes), line in tqdm(zip(data_loader, questions), total=len(questions)):
+    counter=Counter()
+    for (input_ids, image_tensor, image_sizes, gd), line in tqdm(zip(data_loader, questions), total=len(questions)):
+        if isinstance(gd, tuple):
+            gd=gd[0]
+        # if gd=='No':
+        #     continue
         idx = line["question_id"]
         cur_prompt = line["text"]
         # if idx not in [10001551, 10000073, 10002494, 10002462, 794 ]:
@@ -133,7 +192,8 @@ def eval_model(args):
                 _,  
             ) = model.prepare_inputs_labels_for_multimodal_pdrop(       
                 input_ids, position_ids=None, attention_mask=None, past_key_values=None, labels=None,
-                images=torch.tensor([0]),#image_tensor.to(dtype=torch.float16, device='cuda', non_blocking=True), 
+                images=torch.tensor([0]),#
+                # images=image_tensor.to(dtype=torch.float16, device='cuda', non_blocking=True), 
                 image_sizes=image_sizes,
                 image_feature_size=(1,576,4096)
             )
@@ -141,15 +201,18 @@ def eval_model(args):
         
         adv_input_embeds, adv_num, flag=opt_adv_image_token(
             model, new_input_embeds, position_ids, attention_mask,
+            input_ids=input_ids,
+            tokenizer=tokenizer,
             images=image_tensor.to(dtype=torch.float16, device='cuda', non_blocking=True), 
             image_shape=576,        
             token_length_list=[new_input_embeds.shape[1]],  
             pre_prompt_length_list=[torch.where(input_ids==-200)[1][0].item()], 
-            target_layer_idx=2, 
-            adv_steps=50, #30
-            adv_lr=5,#5e-3,
-            stop_ths=[3, 1, 0.005],#[0.9, 0.8, 0.002],
+            target_layer_idx=2, #1
+            adv_steps=0, #30
+            adv_lr=5e-1,#5e-3,
+            stop_ths=[0.9, 0.8, 0.002],#[3, 1, 0.005],#
             alpha=0.9,
+            epsilon=0/255,
             logger=logger
         )
 
@@ -213,9 +276,11 @@ def eval_model(args):
             )
         outputs = tokenizer.batch_decode(output_ids, skip_special_tokens=True)[0].strip()
         logger.print_log(idx, ':', cur_prompt.replace('\n', ' '))
-        logger.print_log(outputs, '---', adv_outputs, '---', adv_outputs2)
+        logger.print_log('GT:', gd, 'Raw:', outputs, 'adv_nc:', adv_outputs, 'adv_c:', adv_outputs2)
+        counter.add_rlt(gd=gd, ori=outputs, c=adv_outputs2, nc=adv_outputs)
         nc_rlt = judge_adv(output_nc=outputs, output_c=adv_outputs)
         c_rlt  = judge_adv(output_nc=outputs, output_c=adv_outputs2)
+        o_rlt  = judge_adv(output_nc=gd, output_c=outputs)
         if flag or (nc_rlt==True and c_rlt==False):
             if nc_rlt:
                 count+=1
@@ -225,6 +290,9 @@ def eval_model(args):
                 succ_list.append(idx)
             total+=1
     logger.print_log(1-count/total, 1-count2/total, total)
+    logger.print_log(counter.get_metric())
+    logger.print_log(counter.get_metric_nc())
+    logger.print_log(counter.get_metric_c())
     # for id in succ_list:
     #     print(id)
 

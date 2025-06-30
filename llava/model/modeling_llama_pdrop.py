@@ -1432,11 +1432,13 @@ class LlamaModel(LlamaPreTrainedModel):
                     (attention_avg_text.topk(20).values.sum()/attention_avg_text.sum()).item(),
                     (attention_avg_text.topk(50).values.sum()/attention_avg_text.sum()).item(),
                 )
-                top_rank_index = attention_avg_text.topk(keep_length[i]).indices
+                top_rank_index = attention_avg_text.topk(keep_length[i]).indices #, largest=False
                 top_rank_index = top_rank_index + image_index  
                 top_rank_index= top_rank_index.sort().values  
 
                 start_index = image_index + image_tokens[i]
+                # tmp_embedding=features[i][ top_rank_index, :]
+                # features[i][ top_rank_index, :]=tmp_embedding+torch.randn_like(tmp_embedding)*tmp_embedding.std()*64/255
                 new_input_embeds = torch.cat([features[i][ :image_index, :] ,features[i][ top_rank_index, :], features[i][start_index:, :]], dim=0)
                 new_labels = torch.cat([labels[i][ :image_index],labels[i][ top_rank_index], labels[i][start_index:]], dim=0)
                 new_attention_mask = torch.cat([attention_mask[i][:image_index], attention_mask[i][top_rank_index], attention_mask[i][start_index:]], dim=0)

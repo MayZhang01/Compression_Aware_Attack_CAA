@@ -3,6 +3,7 @@ import torch.nn.functional as F
 from transformers.models.llama.modeling_llama import apply_rotary_pos_emb
 import math
 from torch.optim.lr_scheduler import StepLR
+from llava.eval.utils import logits_CE
 
 
 def judge_adv(output_c, output_nc):
@@ -172,10 +173,26 @@ def get_attn_mean(attn_map_mean, start_id=None, end_id=None, range=None):
     # attn_map_mean=attn_scores.mean(1)
     if range is not None:
         attn_tar=attn_map_mean[:,-1:, range]
-    else:
+    elif start_id is not None:
         attn_tar=attn_map_mean[:,-1:, int(start_id):int(end_id)]
+    else:
+        attn_tar=attn_map_mean[:,-1:, :]
     attn_tar_mean=attn_tar.mean(1)
     return attn_tar_mean
+
+def exclusive_topk_indices(t1, t2, k):
+    # Ensure both tensors have the same shape
+    assert t1.shape == t2.shape, "t1 and t2 must have the same shape"
+    assert t1.shape[0] == 1, "Only supports tensors with shape (1, N)"
+    
+    # Get the top-k indices for each tensor along dimension 1
+    t1_topk_indices = torch.topk(t1, k=k, dim=1).indices[0]  # shape: (k,)
+    t2_topk_indices = torch.topk(t2, k=k, dim=1).indices[0]  # shape: (k,)
+
+    # Find indices that are in t1's top-k but not in t2's top-k
+    exclusive_indices = [idx.item() for idx in t1_topk_indices if idx not in t2_topk_indices]
+
+    return exclusive_indices
 
 def intersection_ratio(a: torch.Tensor, b: torch.Tensor) -> float:
     """
@@ -208,8 +225,8 @@ def intersection_ratio(a: torch.Tensor, b: torch.Tensor) -> float:
     return ratio
 
 def get_adv_embed(benign_embed, adv_embed, start_idx=None, end_idx=None):
-    # adv_input_embeds=torch.cat([benign_embed, adv_embed], dim=1)#
-    adv_input_embeds=torch.cat([benign_embed[:, 0:start_idx], adv_embed, benign_embed[:, end_idx:]], dim=1)#
+    adv_input_embeds=torch.cat([benign_embed, adv_embed], dim=1)#
+    # adv_input_embeds=torch.cat([benign_embed[:, 0:start_idx], adv_embed, benign_embed[:, end_idx:]], dim=1)#
     return adv_input_embeds
 
 def opt_adv_pro(
@@ -234,17 +251,10 @@ def opt_adv_pro(
     ben_layer=2
     adv_num=1
     
-    # image_features=model.encode_images(image)
-    # adv_image = image.detach().clone()
-    # adv_token = image_features.detach().clone()
-    # adv_token = input_embeds[:,-adv_num:].detach().clone()
-    adv_token = input_embeds[:,v_token_start:text_token_start].detach().clone()
+    adv_token = input_embeds[:,-adv_num:].detach().clone()
     ori_adv_token = adv_token.detach().clone()
     torch.manual_seed(123)                   
     torch.cuda.manual_seed(123)
-    # adv_token.data = adv_token.data+torch.randn(
-    #     adv_token.shape, dtype=adv_token.dtype
-    # ).to(adv_token.device)*0.01
 
     fixed_input_embeds = input_embeds.detach()#[:,:-1]
     if adv_steps>0: 
@@ -254,8 +264,7 @@ def opt_adv_pro(
     with torch.no_grad():
         
         _, ben_attn_map_list_nc, _= trace_transformer_layers_grad(
-            model, #input_embeds,
-            # torch.cat([fixed_input_embeds, input_embeds[:,-adv_num:]], dim=1), 
+            model, 
             get_adv_embed(
                 fixed_input_embeds, adv_token, 
                 start_idx=v_token_start, end_idx=text_token_start
@@ -276,34 +285,13 @@ def opt_adv_pro(
         i_r2=intersection_ratio(topk_v_last[:50],topk_v_idx[:50], )
         i_r3=intersection_ratio(topk_v_last[:50],topk_v_idx[:100],)
         print('ratio', i_r, i_r1, i_r2, i_r3)
-        # ben_attn_p_mean=ben_attn_map_list_nc[target_layer_idx].mean(1)[0,-1,:v_token_start]
-        # _, topk_p_idx = torch.topk(ben_attn_p_mean, k=v_token_start)
-
-        # # 2. Create a mask to select the remaining (non-top-100) indices
-        # topk_v_idx=topk_v_idx+v_token_start
         topk_v_last = topk_v_last+v_token_start
         all_indices = torch.arange(ben_attn_map_list_nc[target_layer_idx].size(3))
-        
-        # up_mask_p   = torch.zeros_like(all_indices, dtype=torch.bool)
-        # down_mask_p = torch.zeros_like(all_indices, dtype=torch.bool)
-        # up_mask_p[topk_p_idx[:10]]=True
-        # down_mask_p[topk_p_idx[10:]]=True 
 
         up_mask_v   = torch.zeros_like(all_indices, dtype=torch.bool)
         down_mask_v = torch.zeros_like(all_indices, dtype=torch.bool)
         up_mask_v[topk_v_last[50:100]]  = True
         down_mask_v[topk_v_last[20:50]] = True
-
-        # up_mask_v2  = torch.zeros_like(all_indices, dtype=torch.bool)
-        # keep_mask_v = torch.zeros_like(all_indices, dtype=torch.bool)
-        # up_mask_v2[topk_v_last[50:100]] = True
-        # keep_mask_v[topk_v_last[0:5]]   = True
-        # keep_mask_v[topk_v_last[200:]]  = True
-
-        # keep_v_logits_ben = get_attn_mean(
-        #     ben_attn_logits_list_nc[target_layer_idx],
-        #     range=keep_mask_v
-        # )
 
         last_attn_map_nc = ben_attn_map_list_nc[-1]
         last_attn_map_mean=last_attn_map_nc.mean(1)
@@ -322,7 +310,6 @@ def opt_adv_pro(
     
     flag=False
     for step in range(adv_steps):
-        # adv_input_embeds=torch.cat([fixed_input_embeds, adv_token], dim=1)#
         adv_input_embeds=get_adv_embed(
             fixed_input_embeds, adv_token, 
             start_idx=v_token_start, end_idx=text_token_start
@@ -347,9 +334,7 @@ def opt_adv_pro(
         
         loss_cur=(
             -up_v_logits1.mean()*1.3
-            # -up_v_logits2.mean()
             +down_v_logits.mean()
-            # -loss_keep*0.03
         )
         
         loss = alpha*loss_cur
@@ -359,17 +344,9 @@ def opt_adv_pro(
         
         print(
             step, round(loss_cur.item(),3), 
-            # round(up_v_logits1.max().item(),5), round(up_v_logits1.min().item(),5),
-            # round(down_v_logits.max().item(),5), round(down_v_logits.min().item(),5)
-        )#
-        # if loss_value.item()>0.02:
-        #     break
-        # if loss_cur.item()<-0.02:
-        #     break
+        )
         optimizer.step()
         scheduler.step()
-        # epsilon=5e-2
-        # adv_token.data  = torch.max(torch.min(adv_token.data , ori_adv_token.data + epsilon), ori_adv_token.data - epsilon)
 
         with torch.no_grad():
             _, last_attn_map_list_nc, _= trace_transformer_layers_grad(
@@ -400,11 +377,6 @@ def opt_adv_pro(
         ) and (
             last_up_v_map.max().item()>stop_ths[2]
         ):
-            # if last_down_v_map.max().item()>0.0023:
-            #     if last_up_v_map.max().item()>0.002:
-            #         flag=True
-            #         break
-            # else:
             flag=True
             break
         
@@ -413,10 +385,6 @@ def opt_adv_pro(
         del attn_logits_list_nc
         del last_attn_map_list_nc, hidden_states_list_nc
 
-    # adv_token.data = adv_token.data+torch.randn(
-    #     adv_token.shape, dtype=adv_token.dtype
-    # ).to(adv_token.device)*0.001
-    # new_input_embeds=torch.cat([fixed_input_embeds, adv_token], dim=1)#
     new_input_embeds=get_adv_embed(
         fixed_input_embeds, adv_token, 
         start_idx=v_token_start, end_idx=text_token_start
@@ -426,20 +394,62 @@ def opt_adv_pro(
 
 
 def cat_adv_embed(benign_embed, adv_image_embed, adv_text_embed=None, start_idx=None, end_idx=None):
-    cat_embedding=[
-        benign_embed[:, 0:start_idx], adv_image_embed, benign_embed[:, end_idx:]
-    ]
+    # cat_embedding=[
+    #     benign_embed[:, 0:start_idx], adv_image_embed, benign_embed[:, end_idx:],#benign_embed[:, -1:]
+    # ]
     if adv_text_embed is not None:
-        cat_embedding.append(adv_text_embed)
+        cat_embedding=[
+            benign_embed[:, 0:start_idx], adv_image_embed, adv_text_embed, benign_embed[:, end_idx:],#benign_embed[:, -1:]
+        ]
+    else:
+        cat_embedding=[
+            benign_embed[:, 0:start_idx], adv_image_embed, benign_embed[:, end_idx:], #benign_embed[:, -1:]
+        ]
     adv_input_embeds=torch.cat(cat_embedding, dim=1)
     return adv_input_embeds
+
+def intersect_topk_range(t1, t2, k1, k2):
+    """
+    Compute the intersection of top-k1 to top-k2 indices between two tensors.
+
+    Args:
+        t1 (Tensor): A tensor of shape (1, 576).
+        t2 (Tensor): A tensor of shape (1, 576).
+        k1 (int): Start of the top-k range (inclusive).
+        k2 (int): End of the top-k range (inclusive).
+
+    Returns:
+        Tensor: A 1D tensor containing the indices that are common in the top-k1 to top-k2 
+                range of both t1 and t2.
+    """
+    # Validate shapes
+    assert t1.shape == t2.shape == (1, 576), "Both tensors must have shape (1, 576)"
+    assert 0 <= k1 <= k2 <= t1.shape[1], "k1 and k2 must define a valid range"
+
+    # Get top-k2 indices for each tensor (returns sorted in descending order of values)
+    t1_topk = torch.topk(t1, k=k2, dim=1).indices[0]
+    t2_topk = torch.topk(t2, k=k2, dim=1).indices[0]
+
+    # Slice from k1 to k2 to get the desired rank range
+    t1_range = t1_topk[k1:k2]
+    t2_range = t2_topk[k1:k2]
+
+    # Compute the intersection of the index sets and convert to a tensor
+    intersection = torch.tensor(
+        list(set(t1_range.tolist()) & set(t2_range.tolist())),
+        dtype=torch.long
+    )
+
+    return intersection
 
 def opt_adv_image_token(
         model, input_embeds, position_ids, attention_mask,
         image_shape,        
         token_length_list,  
         pre_prompt_length_list, 
+        input_ids=None,
         images=None,  
+        tokenizer=None,
         t_token=None,
         target_layer_idx=1, 
         adv_steps=20, 
@@ -447,22 +457,24 @@ def opt_adv_image_token(
         stop_ths=[],
         alpha=1,
         logger=None,
+        epsilon=8/255,
     ):
 
     device = input_embeds.device
     dtype=input_embeds.dtype
-    embed_dim = input_embeds.shape[-1]
+    _, input_num, embed_dim = input_embeds.shape
     v_token_num = image_shape
     v_token_start = pre_prompt_length_list[0] if len(pre_prompt_length_list) != 0 else 0 
+    t_token_start=v_token_start+v_token_num
     text_token_start = v_token_start + image_shape 
 
     ben_layer=2
     adv_num=1
-    epsilon=128/255
+    
     image_max=images.max()
     
-    # adv_perturbs = torch.rand_like(images, dtype=dtype, device=device)
-    # adv_perturbs = (adv_perturbs-0.5)*2*images.max()
+    # adv_perturbs = torch.randn_like(images, dtype=dtype, device=device)
+    # adv_perturbs = adv_perturbs*images.std()
     # adv_perturbs = adv_perturbs*epsilon
     
     adv_perturbs = torch.zeros_like(images, dtype=dtype, device=device)
@@ -472,17 +484,23 @@ def opt_adv_image_token(
     #     adv_token.shape, dtype=adv_token.dtype
     # ).to(adv_token.device)*0.01
     fixed_input_embeds = input_embeds.detach()#[:,:-1]
+    # adv_perturbs[:,-1:]=fixed_input_embeds[:,-1:]
 
     all_token_embedding = model.get_input_embeddings().weight
     vocab_size, emb_dim=all_token_embedding.shape
-    adv_token_logit = torch.randn((adv_num, vocab_size), device=device, dtype=dtype)
+    # adv_token_logit = torch.randn((adv_num, vocab_size), device=device, dtype=dtype)
     # adv_token_logit = (adv_token_logit-0.5)*2
-    # adv_token_logit[:, 29901]=adv_token_logit.max()+15
+    # adv_token_logit[:, 29901]=adv_token_logit.max()+10
+    ini_token_embeds=fixed_input_embeds[:, t_token_start:t_token_start+adv_num].detach().clone()
+    # ini_token_embeds=fixed_input_embeds[:, -adv_num:].detach().clone()
+    adv_token_embeds=ini_token_embeds.detach().clone()
+
     flag=True
     if adv_steps>0: 
         adv_perturbs.requires_grad_(True)
-        adv_token_logit.requires_grad_(True)
-        optimizer = torch.optim.SGD([adv_perturbs], lr=adv_lr)#, adv_token_logit
+        # adv_token_logit.requires_grad_(True)
+        adv_token_embeds.requires_grad_(True)
+        optimizer = torch.optim.SGD([adv_perturbs, adv_token_embeds], lr=adv_lr)#
         scheduler = StepLR(optimizer, step_size=20, gamma=0.5)
         # flag=False
     
@@ -490,10 +508,10 @@ def opt_adv_image_token(
         ben_image_embeds=model.encode_images(images)#+adv_perturbs
         ben_input_embeds=cat_adv_embed(
             fixed_input_embeds, ben_image_embeds, 
-            # fixed_input_embeds[:, -adv_num:],
+            # ini_token_embeds,
             start_idx=v_token_start, end_idx=text_token_start
         )
-        _, ben_attn_map_list_nc, _= trace_transformer_layers_grad(
+        ben_hidden_states_list_nc, ben_attn_map_list_nc, _= trace_transformer_layers_grad(
             model,  
             ben_input_embeds,
             attention_mask,
@@ -503,28 +521,55 @@ def opt_adv_image_token(
             v_token_start=v_token_start,
             v_token_num=v_token_num,
         )
-        ben_attn_v_tar_mean =ben_attn_map_list_nc[target_layer_idx].mean(1)[0, -1 ,v_token_start:v_token_start+v_token_num]#
-        ben_attn_v_last_mean=ben_attn_map_list_nc[-1].mean(1)[0,-1,v_token_start:v_token_start+v_token_num]#
+        ben_attn_v_tar_mean =ben_attn_map_list_nc[target_layer_idx].mean(1)[0, -1 ,v_token_start:t_token_start]#
+        ben_attn_v_last_mean=ben_attn_map_list_nc[-1].mean(1)[0,-1,v_token_start:t_token_start]#
         _, topk_v_last = torch.topk(ben_attn_v_last_mean, k=v_token_num)
         _, topk_v_tar  = torch.topk(ben_attn_v_tar_mean, k=v_token_num)
-        i_r =intersection_ratio(topk_v_last[:5],  topk_v_tar[:50], )
-        i_r1=intersection_ratio(topk_v_last[:10], topk_v_tar[:50], )
-        i_r2=intersection_ratio(topk_v_last[:50], topk_v_tar[:50], )
-        i_r3=intersection_ratio(topk_v_last[:50], topk_v_tar[:100],)
-        logger.print_log('ratio', i_r, i_r1, i_r2, i_r3)
         
+        ben_last_logits = model.lm_head(ben_hidden_states_list_nc[-1])
+        ben_last_logits = ben_last_logits[:,-1,:]
+        ben_tar_logits = model.lm_head(ben_hidden_states_list_nc[target_layer_idx])
+        ben_tar_logits = ben_tar_logits[:,-1,:]
+        # _, topk_l_last = torch.topk(ben_last_logits, k=10)
+        # logger.print_log(tokenizer.decode(topk_l_last[0]))
+        # i_r =intersection_ratio(topk_v_last[:5],  topk_v_tar[:50], )
+        # i_r1=intersection_ratio(topk_v_last[:10], topk_v_tar[:50], )
+        # i_r2=intersection_ratio(topk_v_last[:50], topk_v_tar[:50], )
+        # i_r3=intersection_ratio(topk_v_last[:50], topk_v_tar[:100],)
+        # logger.print_log('ratio', i_r, i_r1, i_r2, i_r3)
+
         topk_v_last = topk_v_last+v_token_start
+        topk_v_tar  = topk_v_tar+v_token_start
+        inter_down=torch.tensor(
+            list(set(topk_v_last[0:100].tolist()) & set(topk_v_tar[0:100].tolist())),
+            dtype=torch.long
+        )
+        inter_up=torch.tensor(
+            list(set(topk_v_last[200:500].tolist()) & set(topk_v_tar[200:500].tolist())),
+            dtype=torch.long
+        )
+        
         all_indices = torch.arange(ben_attn_map_list_nc[target_layer_idx].size(3))
 
         up_mask_v   = torch.zeros_like(all_indices, dtype=torch.bool)
         down_mask_v = torch.zeros_like(all_indices, dtype=torch.bool)
-        # up_mask_v[topk_v_last[0:20]]  = True
-        up_mask_v[topk_v_last[300:500]]  = True
-        down_mask_v[topk_v_last[50:200]] = True
-        
-        # up_mask_v[topk_v_tar[:2]]  = True
-        # up_mask_v[topk_v_tar[50:100]]  = True
-        # down_mask_v[topk_v_tar[10:50]] = True
+        # down_mask_l = torch.zeros(vocab_size, dtype=torch.bool)
+        # up_mask_l   = torch.zeros(vocab_size, dtype=torch.bool)
+        # up_mask_v[topk_v_last[300:500]]  = True
+        # down_mask_v[topk_v_last[50:200]] = True
+        up_mask_v[inter_up]  = True
+        # up_mask_v[t_token_start:t_token_start+adv_num]  = True
+        down_mask_v[inter_down] = True
+        # up_mask_v[topk_v_last[50:100]]  = True
+        # down_mask_v[topk_v_last[20:50]] = True
+        # down_mask_v[-1] = True
+        # down_mask_l[topk_l_last[:,0]] = True
+        # down_mask_l[3869]=True
+        # down_mask_l[1939]=True
+        # up_mask_l[topk_l_last[:,1:]] = True
+        # up_mask_l[2] = True
+        # up_mask_v[inter_down] = True
+        # down_mask_v[inter_up] = True        
 
         last_attn_map_nc = ben_attn_map_list_nc[-1]
         last_attn_map_mean=last_attn_map_nc.mean(1)
@@ -536,17 +581,17 @@ def opt_adv_image_token(
             last_attn_map_mean, 
             range=up_mask_v
         )
-        logger.print_log(' ',
+        logger.print_log('ben: ',
             round(last_up_v_map.max().item(),5), round(last_up_v_map.min().item(),5),
             round(last_down_v_map.max().item(),5), round(last_down_v_map.min().item(),5)
         )
     
     for step in range(adv_steps):
-        adv_token_distribution = F.softmax(adv_token_logit, dim=1)
-        adv_token_embeds = torch.matmul(adv_token_distribution, all_token_embedding).unsqueeze(0)#.unsqueeze(0)
-        adv_images=images+adv_perturbs
+        # adv_token_distribution = F.softmax(adv_token_logit, dim=1)
+        # adv_token_embeds = torch.matmul(adv_token_distribution, all_token_embedding).unsqueeze(0)#.unsqueeze(0)
+        adv_images=images+adv_perturbs#
         adv_image_embeds = model.encode_images(adv_images)
-        adv_input_embeds=cat_adv_embed(
+        adv_input_embeds = cat_adv_embed(
             fixed_input_embeds, adv_image_embeds, 
             # adv_token_embeds, 
             start_idx=v_token_start, end_idx=text_token_start
@@ -557,7 +602,10 @@ def opt_adv_image_token(
             end_layer=target_layer_idx,  
             return_all=True,
         )
-        
+        logits = model.lm_head(hidden_states_list_nc[-1])
+        logits = logits[:,-1,:]
+        ce_loss=logits_CE(ground_logits=ben_tar_logits, pred_logits=logits)
+        # cf_s=torch.softmax(logits, dim=-1)
         attn_logits_nc = attn_logits_list_nc[target_layer_idx]
         attn_map_mean=attn_logits_nc.mean(1)
         down_v_logits = get_attn_mean(
@@ -568,12 +616,23 @@ def opt_adv_image_token(
             attn_map_mean, 
             range=up_mask_v
         )
+        all_image_logits = get_attn_mean(
+            attn_map_mean, 
+            start_id=v_token_start,#input_num,#
+            end_id=t_token_start,#t_token_start,#input_num,#+adv_num
+        )
         up_mean=up_v_logits.mean()
         down_mean=down_v_logits.mean()
-        
+        # logits_up_mean=logits[:,up_mask_l].mean()
+        # logits_down_mean=logits[:,down_mask_l].mean()
         loss_cur=(
             -up_mean*1.3
+            -all_image_logits.mean()*10
             +down_mean
+            # +torch.norm(adv_image_embeds[:,-1:]-ini_token_embeds)
+            # -logits_up_mean*1
+            # -ce_loss*10
+            # +logits_down_mean*2
         )
         
         loss = alpha*loss_cur
@@ -584,10 +643,11 @@ def opt_adv_image_token(
         # adv_perturbs.grad=torch.clamp(adv_perturbs.grad, -epsilon*image_max*0.5, epsilon*image_max*0.5)
         optimizer.step()
         scheduler.step()
-        # adv_perturbs.data=torch.clamp(adv_perturbs.data, -epsilon*image_max, epsilon*image_max)
+        
+        adv_perturbs.data=torch.clamp(adv_perturbs.data, -epsilon*image_max, epsilon*image_max)
 
         with torch.no_grad():
-            _, last_attn_map_list_nc, _= trace_transformer_layers_grad(
+            last_hidden_states_list_nc, last_attn_map_list_nc, _= trace_transformer_layers_grad(
                 model, hidden_states_list_nc[target_layer_idx], attention_mask,
                 start_layer=target_layer_idx+1,  
                 return_all=True,
@@ -602,14 +662,61 @@ def opt_adv_image_token(
                 last_attn_map_mean, 
                 range=up_mask_v
             )
+            
+            if target_layer_idx>=2:
+                tar_attn_map_nc = attn_map_list_nc[target_layer_idx]
+            else:
+                tar_attn_map_nc = last_attn_map_list_nc[1-target_layer_idx]
+            tar_attn_map_mean=tar_attn_map_nc.mean(1)
+            tar_down_v_map = get_attn_mean(
+                tar_attn_map_mean, 
+                range=down_mask_v
+            )
+            tar_up_v_map = get_attn_mean(
+                tar_attn_map_mean, 
+                range=up_mask_v
+            )
+            attn_sum=get_attn_mean(tar_attn_map_mean).sum()
+            sys_attn_ratio=get_attn_mean(
+                tar_attn_map_mean, 
+                start_id=0,
+                end_id=v_token_start
+            ).sum()/attn_sum
+
+            image_attn_ratio=get_attn_mean(
+                tar_attn_map_mean, 
+                start_id=v_token_start,
+                end_id=t_token_start
+            ).sum()/attn_sum
+
+            text_attn_ratio=get_attn_mean(
+                tar_attn_map_mean, 
+                start_id=t_token_start,
+                end_id=input_num+1
+            ).sum()/attn_sum
+            
+            # h_logits = model.lm_head(hidden_states_list_nc[-1])
+            # h_logits = h_logits[:,-1,:]
+            # _, h_top_l_last  = torch.topk(h_logits, k=15)
+            # logger.print_log(tokenizer.decode(h_top_l_last[0]))
+            # t_logits = model.lm_head(last_hidden_states_list_nc[-1])
+            # t_logits = t_logits[:,-1,:]
+            # _, top_l_last  = torch.topk(t_logits, k=15)
+            # logger.print_log(tokenizer.decode(top_l_last[0]))
         logger.print_log(
-            step, round(loss_cur.item(),3), round(up_mean.item(),3), round(down_mean.item(),3), 
-            'mean: ',
-            round(last_up_v_map.mean().item(),5), round(last_down_v_map.mean().item(),5),
-            'last_up: ',
-            round(last_up_v_map.max().item(),5),  round(last_up_v_map.min().item(),5),
-            'last_down: ',
-            round(last_down_v_map.max().item(),5),round(last_down_v_map.min().item(),5)
+            step, 
+            'loss: ',
+            round(loss_cur.item(),3),  round(up_mean.item(),3),  round(down_mean.item(),3),  round(all_image_logits.mean().item(),3),   round(ce_loss.item(),3),
+            # round(logits_up_mean.item(),5), round(logits_down_mean.item(),5), round(ce_loss.item(),5),
+            'attn_ratio:', round(sys_attn_ratio.item(),3), round(image_attn_ratio.item(),3), round(text_attn_ratio.item(),3),
+            'tar_up: ', round((tar_up_v_map.sum()/attn_sum).item(),3),
+            # round(tar_up_v_map.max().item(),5),  round(tar_up_v_map.mean().item(),5),
+            'tar_down: ', round((tar_down_v_map.sum()/attn_sum).item(),3),
+            # round(tar_down_v_map.max().item(),5),round(tar_down_v_map.mean().item(),5),
+            'last_up: ', round((last_up_v_map.sum()/attn_sum).item(),3),
+            # round(last_up_v_map.max().item(),5),  round(last_up_v_map.mean().item(),5),
+            'last_down: ', round((last_down_v_map.sum()/attn_sum).item(),3),
+            # round(last_down_v_map.max().item(),5),round(last_down_v_map.mean().item(),5),
         )
         
         # if (
@@ -619,6 +726,11 @@ def opt_adv_image_token(
         # ) and (
         #     last_up_v_map.max().item()>stop_ths[2]
         # ):
+        #     flag=True
+        #     break
+        # if tar_up_v_map.mean()>tar_down_v_map.max()*0.85:
+        #     break
+        # if image_attn_ratio.item()>0.12:
         #     flag=True
         #     break
         
@@ -631,9 +743,9 @@ def opt_adv_image_token(
     #     adv_token.shape, dtype=adv_token.dtype
     # ).to(adv_token.device)*0.001
     with torch.no_grad():
-        adv_token_distribution = F.softmax(adv_token_logit, dim=1)
-        adv_token_embeds = torch.matmul(adv_token_distribution, all_token_embedding).unsqueeze(0)#.unsqueeze(0)
-        adv_images=images+adv_perturbs
+        # adv_token_distribution = F.softmax(adv_token_logit, dim=1)
+        # adv_token_embeds = torch.matmul(adv_token_distribution, all_token_embedding).unsqueeze(0)#.unsqueeze(0)
+        adv_images=images+adv_perturbs#
         adv_image_embeds = model.encode_images(adv_images)
         new_input_embeds=cat_adv_embed(
             fixed_input_embeds, adv_image_embeds, 

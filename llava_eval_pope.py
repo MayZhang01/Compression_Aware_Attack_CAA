@@ -15,7 +15,7 @@ args = type('Args', (), {
     "model_path": model_path,
     "model_base": None,
     "image_folder": '../playground/data/eval/pope/val2014',
-    "question_file": '../playground/data/eval/pope/llava_pope_test.jsonl',
+    "question_file": '../playground/data/eval/pope/llava_pope_test_ground_truth.jsonl',
     "answers_file": '../playground/data/eval/pope/answers/llava-v1.5-13b.jsonl',
     "temperature": 0,
     "conv_mode": "llava_v1",
