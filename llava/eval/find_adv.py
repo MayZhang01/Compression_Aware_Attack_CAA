@@ -3,7 +3,7 @@ import torch.nn.functional as F
 from transformers.models.llama.modeling_llama import apply_rotary_pos_emb
 import math
 from torch.optim.lr_scheduler import StepLR
-from llava.eval.utils import logits_CE
+from llava.eval.utils import loss_norm
 
 
 def judge_adv(output_c, output_nc):
@@ -399,7 +399,7 @@ def cat_adv_embed(benign_embed, adv_image_embed, adv_text_embed=None, start_idx=
     # ]
     if adv_text_embed is not None:
         cat_embedding=[
-            benign_embed[:, 0:start_idx], adv_image_embed, adv_text_embed, benign_embed[:, end_idx:],#benign_embed[:, -1:]
+            benign_embed[:, 0:start_idx], adv_image_embed[:,:-1], adv_text_embed, benign_embed[:, end_idx:],#benign_embed[:, -1:]
         ]
     else:
         cat_embedding=[
@@ -472,12 +472,14 @@ def opt_adv_image_token(
     adv_num=1
     
     image_max=images.max()
+
+    logger.print_log('epsilon', epsilon)
     
-    # adv_perturbs = torch.randn_like(images, dtype=dtype, device=device)
-    # adv_perturbs = adv_perturbs*images.std()
-    # adv_perturbs = adv_perturbs*epsilon
+    adv_perturbs = torch.randn_like(images, dtype=dtype, device=device)
+    adv_perturbs = adv_perturbs*images.std()
+    adv_perturbs = adv_perturbs*epsilon
     
-    adv_perturbs = torch.zeros_like(images, dtype=dtype, device=device)
+    # adv_perturbs = torch.zeros_like(images, dtype=dtype, device=device)
     torch.manual_seed(123)                   
     torch.cuda.manual_seed(123)
     # adv_token.data = adv_token.data+torch.randn(
@@ -491,9 +493,10 @@ def opt_adv_image_token(
     # adv_token_logit = torch.randn((adv_num, vocab_size), device=device, dtype=dtype)
     # adv_token_logit = (adv_token_logit-0.5)*2
     # adv_token_logit[:, 29901]=adv_token_logit.max()+10
-    ini_token_embeds=fixed_input_embeds[:, t_token_start:t_token_start+adv_num].detach().clone()
-    # ini_token_embeds=fixed_input_embeds[:, -adv_num:].detach().clone()
+    # ini_token_embeds=fixed_input_embeds[:, t_token_start:t_token_start+adv_num].detach().clone()
+    ini_token_embeds=fixed_input_embeds[:, -adv_num:].detach().clone()
     adv_token_embeds=ini_token_embeds.detach().clone()
+    adv_token_embeds=torch.randn_like(ini_token_embeds, device=device)*ini_token_embeds.std()
 
     flag=True
     if adv_steps>0: 
@@ -555,11 +558,13 @@ def opt_adv_image_token(
         down_mask_v = torch.zeros_like(all_indices, dtype=torch.bool)
         # down_mask_l = torch.zeros(vocab_size, dtype=torch.bool)
         # up_mask_l   = torch.zeros(vocab_size, dtype=torch.bool)
-        # up_mask_v[topk_v_last[300:500]]  = True
-        # down_mask_v[topk_v_last[50:200]] = True
-        up_mask_v[inter_up]  = True
+        up_mask_v[topk_v_tar[-100:]]  = True
+        down_mask_v[topk_v_tar[:100]] = True
+        # up_mask_v[topk_v_tar[50:100]]  = True
+        # down_mask_v[topk_v_tar[20:50]] = True
+        # up_mask_v[inter_up]  = True
+        # down_mask_v[inter_down] = True
         # up_mask_v[t_token_start:t_token_start+adv_num]  = True
-        down_mask_v[inter_down] = True
         # up_mask_v[topk_v_last[50:100]]  = True
         # down_mask_v[topk_v_last[20:50]] = True
         # down_mask_v[-1] = True
@@ -585,7 +590,8 @@ def opt_adv_image_token(
             round(last_up_v_map.max().item(),5), round(last_up_v_map.min().item(),5),
             round(last_down_v_map.max().item(),5), round(last_down_v_map.min().item(),5)
         )
-    
+    n_ben_hi=ben_hidden_states_list_nc[target_layer_idx][:,up_mask_v]
+    # n_ben_hi=n_ben_hi+torch.randn_like(n_ben_hi)*n_ben_hi.std()*64/255
     for step in range(adv_steps):
         # adv_token_distribution = F.softmax(adv_token_logit, dim=1)
         # adv_token_embeds = torch.matmul(adv_token_distribution, all_token_embedding).unsqueeze(0)#.unsqueeze(0)
@@ -604,7 +610,10 @@ def opt_adv_image_token(
         )
         logits = model.lm_head(hidden_states_list_nc[-1])
         logits = logits[:,-1,:]
-        ce_loss=logits_CE(ground_logits=ben_tar_logits, pred_logits=logits)
+        hi_loss=loss_norm(
+            ground_logits=n_ben_hi, 
+            pred_logits=hidden_states_list_nc[target_layer_idx][:,up_mask_v]
+        )
         # cf_s=torch.softmax(logits, dim=-1)
         attn_logits_nc = attn_logits_list_nc[target_layer_idx]
         attn_map_mean=attn_logits_nc.mean(1)
@@ -631,7 +640,7 @@ def opt_adv_image_token(
             +down_mean
             # +torch.norm(adv_image_embeds[:,-1:]-ini_token_embeds)
             # -logits_up_mean*1
-            # -ce_loss*10
+            # +hi_loss*0.1
             # +logits_down_mean*2
         )
         
@@ -703,16 +712,18 @@ def opt_adv_image_token(
             # t_logits = t_logits[:,-1,:]
             # _, top_l_last  = torch.topk(t_logits, k=15)
             # logger.print_log(tokenizer.decode(top_l_last[0]))
+        tar_up_ratio=(tar_up_v_map.sum()/attn_sum).item()
+        tar_down_ratio=(tar_down_v_map.sum()/attn_sum).item()
         logger.print_log(
             step, 
             'loss: ',
-            round(loss_cur.item(),3),  round(up_mean.item(),3),  round(down_mean.item(),3),  round(all_image_logits.mean().item(),3),   round(ce_loss.item(),3),
+            round(loss_cur.item(),3),  round(up_mean.item(),3),  round(down_mean.item(),3),  round(all_image_logits.mean().item(),3),   round(hi_loss.item(),3),
             # round(logits_up_mean.item(),5), round(logits_down_mean.item(),5), round(ce_loss.item(),5),
             'attn_ratio:', round(sys_attn_ratio.item(),3), round(image_attn_ratio.item(),3), round(text_attn_ratio.item(),3),
-            'tar_up: ', round((tar_up_v_map.sum()/attn_sum).item(),3),
-            # round(tar_up_v_map.max().item(),5),  round(tar_up_v_map.mean().item(),5),
-            'tar_down: ', round((tar_down_v_map.sum()/attn_sum).item(),3),
-            # round(tar_down_v_map.max().item(),5),round(tar_down_v_map.mean().item(),5),
+            'tar_up: ', round(tar_up_ratio,3),round(tar_up_v_map.max().item(),5),  
+            # round(tar_up_v_map.mean().item(),5),
+            'tar_down: ', round(tar_down_ratio,3), round(tar_down_v_map.max().item(),5),
+            # round(tar_down_v_map.mean().item(),5),
             'last_up: ', round((last_up_v_map.sum()/attn_sum).item(),3),
             # round(last_up_v_map.max().item(),5),  round(last_up_v_map.mean().item(),5),
             'last_down: ', round((last_down_v_map.sum()/attn_sum).item(),3),
@@ -728,13 +739,15 @@ def opt_adv_image_token(
         # ):
         #     flag=True
         #     break
-        # if tar_up_v_map.mean()>tar_down_v_map.max()*0.85:
+        # if tar_up_ratio>0.07 and tar_down_ratio>0.04:
         #     break
         # if image_attn_ratio.item()>0.12:
         #     flag=True
+        #     # if image_attn_ratio.item()>0.3:
+        #     #     adv_perturbs=adv_perturbs*0.5
         #     break
         
-        del loss, loss_cur, attn_logits_nc, attn_map_mean, down_v_logits, up_v_logits
+        # del loss, loss_cur, attn_logits_nc, attn_map_mean, down_v_logits, up_v_logits
         del last_attn_map_mean
         del attn_logits_list_nc
         del last_attn_map_list_nc, hidden_states_list_nc
@@ -745,7 +758,7 @@ def opt_adv_image_token(
     with torch.no_grad():
         # adv_token_distribution = F.softmax(adv_token_logit, dim=1)
         # adv_token_embeds = torch.matmul(adv_token_distribution, all_token_embedding).unsqueeze(0)#.unsqueeze(0)
-        adv_images=images+adv_perturbs#
+        adv_images=images+adv_perturbs#+torch.randn_like(adv_perturbs)*images.std()*8/255
         adv_image_embeds = model.encode_images(adv_images)
         new_input_embeds=cat_adv_embed(
             fixed_input_embeds, adv_image_embeds, 

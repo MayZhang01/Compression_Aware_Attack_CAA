@@ -78,15 +78,15 @@ class Counter:
         }
     def get_metric_nc(self):
         return {
-            'TPR_nc':round(self.TP_nc/(self.TP_nc+self.FN_nc+1e-8),3), 
-            'TNR_nc':round(self.TN_nc/(self.TN_nc+self.FP_nc+1e-8),3), 
-            'ACC_nc':round((self.TP_nc+self.TN_nc)/self.total,3),
+            'TPR_nc':round(self.TP_nc/(self.TP_nc+self.FN_nc+1e-8),4), 
+            'TNR_nc':round(self.TN_nc/(self.TN_nc+self.FP_nc+1e-8),4), 
+            'ACC_nc':round((self.TP_nc+self.TN_nc)/self.total,4),
         }
     def get_metric_c(self):
         return {
-            'TPR_c':round(self.TP_c/(self.TP_c+self.FN_c+1e-8),3), 
-            'TNR_c':round(self.TN_c/(self.TN_c+self.FP_c+1e-8),3), 
-            'ACC_c':round((self.TP_c+self.TN_c)/self.total,3),
+            'TPR_c':round(self.TP_c/(self.TP_c+self.FN_c+1e-8),4), 
+            'TNR_c':round(self.TN_c/(self.TN_c+self.FP_c+1e-8),4), 
+            'ACC_c':round((self.TP_c+self.TN_c)/self.total,4),
         }
     def add_rlt(self, gd, ori, c, nc):
         self.total+=1
@@ -152,7 +152,7 @@ def eval_model(args):
     questions = [json.loads(q) for q in open(os.path.expanduser(args.question_file), "r")]
     random.seed(124)
     random.shuffle(questions)
-    questions = questions[0:50]
+    questions = questions[0:150]
     # questions = questions[150:200]
     questions = get_chunk(questions, args.num_chunks, args.chunk_idx)
     # answers_file = os.path.expanduser(args.answers_file)
@@ -175,13 +175,7 @@ def eval_model(args):
         #     continue
         idx = line["question_id"]
         cur_prompt = line["text"]
-        # if idx not in [10001551, 10000073, 10002494, 10002462, 794 ]:
-        #     continue
         input_ids = input_ids.to(device='cuda', non_blocking=True)
-        # input_ids = torch.cat([
-        #     input_ids,
-        #     torch.randint(0,tokenizer.vocab_size,(1,1),device=input_ids.device)
-        # ], dim=1)
         with torch.no_grad():
             (
                 inputs,
@@ -207,12 +201,12 @@ def eval_model(args):
             image_shape=576,        
             token_length_list=[new_input_embeds.shape[1]],  
             pre_prompt_length_list=[torch.where(input_ids==-200)[1][0].item()], 
-            target_layer_idx=2, #1
-            adv_steps=0, #30
+            target_layer_idx=1, #1
+            adv_steps=50, #30
             adv_lr=5e-1,#5e-3,
             stop_ths=[0.9, 0.8, 0.002],#[3, 1, 0.005],#
             alpha=0.9,
-            epsilon=0/255,
+            epsilon=255/255,
             logger=logger
         )
 
@@ -289,12 +283,15 @@ def eval_model(args):
             else:
                 succ_list.append(idx)
             total+=1
+        if counter.total%20==0 and counter.total>0:
+            logger.print_log(1-count/total, 1-count2/total, total)
+            logger.print_log(counter.get_metric())
+            logger.print_log(counter.get_metric_nc())
+            logger.print_log(counter.get_metric_c())
     logger.print_log(1-count/total, 1-count2/total, total)
     logger.print_log(counter.get_metric())
     logger.print_log(counter.get_metric_nc())
     logger.print_log(counter.get_metric_c())
-    # for id in succ_list:
-    #     print(id)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

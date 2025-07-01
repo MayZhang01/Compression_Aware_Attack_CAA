@@ -1438,7 +1438,7 @@ class LlamaModel(LlamaPreTrainedModel):
 
                 start_index = image_index + image_tokens[i]
                 # tmp_embedding=features[i][ top_rank_index, :]
-                # features[i][ top_rank_index, :]=tmp_embedding+torch.randn_like(tmp_embedding)*tmp_embedding.std()*64/255
+                # features[i][ top_rank_index, :]=tmp_embedding+torch.randn_like(tmp_embedding)*tmp_embedding.std()*32/255
                 new_input_embeds = torch.cat([features[i][ :image_index, :] ,features[i][ top_rank_index, :], features[i][start_index:, :]], dim=0)
                 new_labels = torch.cat([labels[i][ :image_index],labels[i][ top_rank_index], labels[i][start_index:]], dim=0)
                 new_attention_mask = torch.cat([attention_mask[i][:image_index], attention_mask[i][top_rank_index], attention_mask[i][start_index:]], dim=0)

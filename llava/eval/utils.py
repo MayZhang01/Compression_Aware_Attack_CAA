@@ -31,7 +31,7 @@ class Logger:
         # logging.warning("这是一个警告")
         # logging.error("这是一个错误")
 
-def logits_CE(ground_logits, pred_logits, eps=1e-8):
+def loss_norm(ground_logits, pred_logits, eps=1e-8):
     # soft_targets = F.softmax(ground_logits, dim=1)  # shape: (batch_size, num_classes)
     # soft_preds = F.softmax(pred_logits, dim=1)
     # soft_preds = soft_preds.clamp(min=eps)
