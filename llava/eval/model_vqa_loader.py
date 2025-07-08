@@ -15,7 +15,7 @@ from torch.utils.data import Dataset, DataLoader
 from PIL import Image
 import math
 import random
-from llava.eval.find_adv import opt_adv_pro, judge_adv, opt_adv_image_token
+from llava.eval.find_adv import opt_adv_pro, judge_adv, opt_adv_image_token, opt_adv_image_text_pro
 from llava.eval.utils import Logger
 
 def split_list(lst, n):
@@ -65,57 +65,59 @@ class CustomDataset(Dataset):
         return len(self.questions)
 
 class Counter:
-    def __init__(self):
-        self.TP,   self.FP,   self.TN,   self.FN   =0,0,0,0
-        self.TP_c, self.FP_c, self.TN_c, self.FN_c =0,0,0,0
-        self.TP_nc,self.FP_nc,self.TN_nc,self.FN_nc=0,0,0,0
+    def __init__(self, cp_list=[]):
+        self.TP, self.FP, self.TN, self.FN={'ori':0}, {'ori':0}, {'ori':0}, {'ori':0}
+        self.rej, self.nonsense={}, {}
         self.total=0
-    def get_metric(self):
-        return {
-            'TPR':round(self.TP/(self.TP+self.FN+1e-8),3), 
-            'TNR':round(self.TN/(self.TN+self.FP+1e-8),3), 
-            'ACC':round((self.TP+self.TN)/self.total,3),
-        }
-    def get_metric_nc(self):
-        return {
-            'TPR_nc':round(self.TP_nc/(self.TP_nc+self.FN_nc+1e-8),4), 
-            'TNR_nc':round(self.TN_nc/(self.TN_nc+self.FP_nc+1e-8),4), 
-            'ACC_nc':round((self.TP_nc+self.TN_nc)/self.total,4),
-        }
-    def get_metric_c(self):
-        return {
-            'TPR_c':round(self.TP_c/(self.TP_c+self.FN_c+1e-8),4), 
-            'TNR_c':round(self.TN_c/(self.TN_c+self.FP_c+1e-8),4), 
-            'ACC_c':round((self.TP_c+self.TN_c)/self.total,4),
-        }
-    def add_rlt(self, gd, ori, c, nc):
+        for cp in cp_list:
+            self.TP[str(cp)]=0
+            self.FP[str(cp)]=0
+            self.TN[str(cp)]=0
+            self.FN[str(cp)]=0
+            self.rej[str(cp)]=0
+            self.nonsense[str(cp)]=0
+    def get_metric(self, logger=None):
+        metric={}
+        m_list=["TPR", "TNR", "ACC", "Rej", "Nos"]
+        for key in self.TP:
+            metric[key]={}
+            metric[key]['TPR']=round(self.TP[key]/(self.TP[key]+self.FN[key]+1e-8),4)
+            metric[key]['TNR']=round(self.TN[key]/(self.TN[key]+self.FP[key]+1e-8),4)
+            metric[key]['ACC']=round((self.TP[key]+self.TN[key])/self.total,4)
+            if key !='ori':
+                metric[key]['Rej']=round((self.rej[key])/self.total,4)
+                metric[key]['Nos']=round((self.nonsense[key])/self.total,4)
+        if logger is not None:
+            logger.print_log(' ', ' '.join(m for m in m_list))
+            for key in metric:
+                if key =='ori':
+                    logger.print_log(key, metric[key]['TPR'], metric[key]['TNR'], metric[key]['ACC'])
+                else:
+                    logger.print_log(key, metric[key]['TPR'], metric[key]['TNR'], metric[key]['ACC'], metric[key]['Rej'], metric[key]['Nos'])
+        return metric
+            
+    def add_rlt(self, gt, rlt):
         self.total+=1
-        if gd=='Yes':
-            if judge_adv(ori, gd):
-                self.TP+=1
-            else:
-                self.FN+=1
-            if judge_adv(c, gd):
-                self.TP_c+=1
-            else:
-                self.FN_c+=1
-            if judge_adv(nc, gd):
-                self.TP_nc+=1
-            else:
-                self.FN_nc+=1
+        if gt=='Yes':
+            for key in rlt:
+                if judge_adv(rlt[key], gt):
+                    self.TP[key]+=1
+                else:
+                    self.FN[key]+=1
         else:
-            if judge_adv(ori, gd):
-                self.TN+=1
-            else:
-                self.FP+=1
-            if judge_adv(c, gd):
-                self.TN_c+=1
-            else:
-                self.FP_c+=1
-            if judge_adv(nc, gd):
-                self.TN_nc+=1
-            else:
-                self.FP_nc+=1
+            for key in rlt:
+                if judge_adv(rlt[key], gt):
+                    self.TN[key]+=1
+                else:
+                    self.FP[key]+=1
+        for key in rlt:
+            if key=='ori':
+                continue
+
+            if rlt[key]=='':
+                self.rej[key]+=1
+            elif (judge_adv(rlt[key], 'Yes') or judge_adv(rlt[key], 'No'))==False:
+                self.nonsense[key]+=1
 
 
 def collate_fn(batch):
@@ -149,10 +151,11 @@ def eval_model(args):
     model_class_name = type(model).__name__
 
     logger=Logger()
+    model.model.logger=logger
     questions = [json.loads(q) for q in open(os.path.expanduser(args.question_file), "r")]
     random.seed(124)
     random.shuffle(questions)
-    questions = questions[0:150]
+    questions = questions[0:310]
     # questions = questions[150:200]
     questions = get_chunk(questions, args.num_chunks, args.chunk_idx)
     # answers_file = os.path.expanduser(args.answers_file)
@@ -167,10 +170,11 @@ def eval_model(args):
     count, count2=0, 0
     total=0
     succ_list=[]
-    counter=Counter()
-    for (input_ids, image_tensor, image_sizes, gd), line in tqdm(zip(data_loader, questions), total=len(questions)):
-        if isinstance(gd, tuple):
-            gd=gd[0]
+    cp_list=[1, 0.2, 0.15, 0.1]
+    counter=Counter(cp_list)
+    for (input_ids, image_tensor, image_sizes, gt), line in tqdm(zip(data_loader, questions), total=len(questions)):
+        if isinstance(gt, tuple):
+            gt=gt[0]
         # if gd=='No':
         #     continue
         idx = line["question_id"]
@@ -193,7 +197,7 @@ def eval_model(args):
             )
             ori_prompt_len=model.model.prompt_len[0]
         
-        adv_input_embeds, adv_num, flag=opt_adv_image_token(
+        adv_input_embeds, adv_num, flag=opt_adv_image_text_pro(
             model, new_input_embeds, position_ids, attention_mask,
             input_ids=input_ids,
             tokenizer=tokenizer,
@@ -201,54 +205,37 @@ def eval_model(args):
             image_shape=576,        
             token_length_list=[new_input_embeds.shape[1]],  
             pre_prompt_length_list=[torch.where(input_ids==-200)[1][0].item()], 
-            target_layer_idx=1, #1
-            adv_steps=50, #30
-            adv_lr=5e-1,#5e-3,
+            target_layer_idx=2, #1
+            adv_steps=30, #30
+            adv_lr=1e-3,#5e-3,
             stop_ths=[0.9, 0.8, 0.002],#[3, 1, 0.005],#
             alpha=0.9,
-            epsilon=255/255,
+            epsilon=4/255,
             logger=logger
         )
 
-        with torch.inference_mode():
-            if model_class_name == "LlavaLlamaForCausalLM_PDrop":
-                model.model.layer_list = [2]
-                model.model.image_token_ratio_list = [1]
-                model.model.image_token_ratio_list.insert(0, 1.0)
-            model.model.prompt_len[0]=ori_prompt_len+adv_num
-            adv_output_ids = model.generate(
-                # input_ids,
-                # images=image_tensor.to(dtype=torch.float16, device='cuda', non_blocking=True),
-                inputs_embeds=adv_input_embeds,
-                image_sizes=image_sizes,
-                do_sample=True if args.temperature > 0 else False,
-                # temperature=args.temperature,
-                # top_p=args.top_p,
-                num_beams=args.num_beams,
-                max_new_tokens=args.max_new_tokens,
-                use_cache=True
-            )
-        adv_outputs = tokenizer.batch_decode(adv_output_ids, skip_special_tokens=True)[0].strip()
-        
-        with torch.inference_mode():
-            if model_class_name == "LlavaLlamaForCausalLM_PDrop":
-                model.model.layer_list = [2]
-                model.model.image_token_ratio_list = [0.1]
-                model.model.image_token_ratio_list.insert(0, 1.0)
-            model.model.prompt_len[0]=ori_prompt_len+adv_num
-            adv_output_ids2 = model.generate(
-                # input_ids,
-                # images=image_tensor.to(dtype=torch.float16, device='cuda', non_blocking=True),
-                inputs_embeds=adv_input_embeds,
-                image_sizes=image_sizes,
-                do_sample=True if args.temperature > 0 else False,
-                # temperature=args.temperature,
-                # top_p=args.top_p,
-                num_beams=args.num_beams,
-                max_new_tokens=args.max_new_tokens,
-                use_cache=True
-            )
-        adv_outputs2 = tokenizer.batch_decode(adv_output_ids2, skip_special_tokens=True)[0].strip()
+        rlt={}
+        for cp in cp_list:
+            with torch.inference_mode():
+                if model_class_name == "LlavaLlamaForCausalLM_PDrop":
+                    model.model.layer_list = [2]
+                    model.model.image_token_ratio_list = [cp]
+                    model.model.image_token_ratio_list.insert(0, 1.0)
+                model.model.prompt_len[0]=ori_prompt_len+adv_num
+                adv_output_ids = model.generate(
+                    # input_ids,
+                    # images=image_tensor.to(dtype=torch.float16, device='cuda', non_blocking=True),
+                    inputs_embeds=adv_input_embeds,
+                    image_sizes=image_sizes,
+                    do_sample=True if args.temperature > 0 else False,
+                    # temperature=args.temperature,
+                    # top_p=args.top_p,
+                    num_beams=args.num_beams,
+                    max_new_tokens=args.max_new_tokens,
+                    use_cache=True
+                )
+            adv_outputs = tokenizer.batch_decode(adv_output_ids, skip_special_tokens=True)[0].strip()
+            rlt[str(cp)]=adv_outputs
 
         with torch.inference_mode():
             if model_class_name == "LlavaLlamaForCausalLM_PDrop":
@@ -269,29 +256,14 @@ def eval_model(args):
                 use_cache=True
             )
         outputs = tokenizer.batch_decode(output_ids, skip_special_tokens=True)[0].strip()
+        rlt['ori']=outputs
+        counter.add_rlt(gt=gt, rlt=rlt)
+        rlt['gt']=gt
         logger.print_log(idx, ':', cur_prompt.replace('\n', ' '))
-        logger.print_log('GT:', gd, 'Raw:', outputs, 'adv_nc:', adv_outputs, 'adv_c:', adv_outputs2)
-        counter.add_rlt(gd=gd, ori=outputs, c=adv_outputs2, nc=adv_outputs)
-        nc_rlt = judge_adv(output_nc=outputs, output_c=adv_outputs)
-        c_rlt  = judge_adv(output_nc=outputs, output_c=adv_outputs2)
-        o_rlt  = judge_adv(output_nc=gd, output_c=outputs)
-        if flag or (nc_rlt==True and c_rlt==False):
-            if nc_rlt:
-                count+=1
-            if c_rlt:
-                count2+=1
-            else:
-                succ_list.append(idx)
-            total+=1
+        logger.print_log(rlt)
         if counter.total%20==0 and counter.total>0:
-            logger.print_log(1-count/total, 1-count2/total, total)
-            logger.print_log(counter.get_metric())
-            logger.print_log(counter.get_metric_nc())
-            logger.print_log(counter.get_metric_c())
-    logger.print_log(1-count/total, 1-count2/total, total)
-    logger.print_log(counter.get_metric())
-    logger.print_log(counter.get_metric_nc())
-    logger.print_log(counter.get_metric_c())
+            counter.get_metric(logger=logger)
+    counter.get_metric(logger=logger)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

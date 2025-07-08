@@ -3,7 +3,7 @@ import torch.nn.functional as F
 from transformers.models.llama.modeling_llama import apply_rotary_pos_emb
 import math
 from torch.optim.lr_scheduler import StepLR
-from llava.eval.utils import loss_norm
+from llava.eval.utils import loss_norm, intersection_ratio, add_square_patch
 
 
 def judge_adv(output_c, output_nc):
@@ -194,36 +194,6 @@ def exclusive_topk_indices(t1, t2, k):
 
     return exclusive_indices
 
-def intersection_ratio(a: torch.Tensor, b: torch.Tensor) -> float:
-    """
-    Compute the intersection ratio between two integer tensors after sorting.
-    Intersection is defined as the number of common elements (set-wise), 
-    divided by the total number of unique elements (from either tensor).
-
-    Args:
-        a (torch.Tensor): First tensor, must be 1D or flattenable
-        b (torch.Tensor): Second tensor, same shape as a
-
-    Returns:
-        float: Ratio of intersection count to total number of elements in a
-    """
-    # Flatten both tensors to 1D
-    # a = a.flatten()
-    # b = b.flatten()
-    
-    # # Sort both tensors
-    # a_sorted, _ = torch.sort(a)
-    # b_sorted, _ = torch.sort(b)
-
-    # Compute set-wise intersection
-    intersect = torch.isin(a, b)
-    num_match = intersect.sum().item()
-    total = min(a.numel(),b.numel())
-
-    # Compute ratio
-    ratio = num_match / total
-    return ratio
-
 def get_adv_embed(benign_embed, adv_embed, start_idx=None, end_idx=None):
     adv_input_embeds=torch.cat([benign_embed, adv_embed], dim=1)#
     # adv_input_embeds=torch.cat([benign_embed[:, 0:start_idx], adv_embed, benign_embed[:, end_idx:]], dim=1)#
@@ -393,17 +363,24 @@ def opt_adv_pro(
 
 
 
-def cat_adv_embed(benign_embed, adv_image_embed, adv_text_embed=None, start_idx=None, end_idx=None):
-    # cat_embedding=[
-    #     benign_embed[:, 0:start_idx], adv_image_embed, benign_embed[:, end_idx:],#benign_embed[:, -1:]
-    # ]
+def cat_adv_embed(benign_embed, adv_image_embed, adv_text_embed=None, start_idx=None, end_idx=None, adv_patch_num=None):
     if adv_text_embed is not None:
-        cat_embedding=[
-            benign_embed[:, 0:start_idx], adv_image_embed[:,:-1], adv_text_embed, benign_embed[:, end_idx:],#benign_embed[:, -1:]
-        ]
+        if adv_patch_num is not None and adv_patch_num>0:
+            cat_embedding=[
+                benign_embed[:, 0:start_idx], adv_image_embed[:,:-adv_patch_num], adv_text_embed, benign_embed[:, end_idx:],
+            ]
+        elif adv_patch_num==0:
+            cat_embedding=[
+                benign_embed[:, 0:start_idx], adv_image_embed[:,:], benign_embed[:, end_idx:],
+            ]
+        
+        else:
+            cat_embedding=[
+                benign_embed[:, 0:start_idx], adv_image_embed[:,:], adv_text_embed, benign_embed[:, end_idx:],
+            ]
     else:
         cat_embedding=[
-            benign_embed[:, 0:start_idx], adv_image_embed, benign_embed[:, end_idx:], #benign_embed[:, -1:]
+            benign_embed[:, 0:start_idx], adv_image_embed, benign_embed[:, end_idx:], 
         ]
     adv_input_embeds=torch.cat(cat_embedding, dim=1)
     return adv_input_embeds
@@ -496,7 +473,7 @@ def opt_adv_image_token(
     # ini_token_embeds=fixed_input_embeds[:, t_token_start:t_token_start+adv_num].detach().clone()
     ini_token_embeds=fixed_input_embeds[:, -adv_num:].detach().clone()
     adv_token_embeds=ini_token_embeds.detach().clone()
-    adv_token_embeds=torch.randn_like(ini_token_embeds, device=device)*ini_token_embeds.std()
+    # adv_token_embeds=torch.randn_like(ini_token_embeds, device=device)*ini_token_embeds.std()
 
     flag=True
     if adv_steps>0: 
@@ -507,90 +484,90 @@ def opt_adv_image_token(
         scheduler = StepLR(optimizer, step_size=20, gamma=0.5)
         # flag=False
     
-    with torch.no_grad():    
-        ben_image_embeds=model.encode_images(images)#+adv_perturbs
-        ben_input_embeds=cat_adv_embed(
-            fixed_input_embeds, ben_image_embeds, 
-            # ini_token_embeds,
-            start_idx=v_token_start, end_idx=text_token_start
-        )
-        ben_hidden_states_list_nc, ben_attn_map_list_nc, _= trace_transformer_layers_grad(
-            model,  
-            ben_input_embeds,
-            attention_mask,
-            start_layer=0,
-            end_layer=None,  
-            return_all=True,
-            v_token_start=v_token_start,
-            v_token_num=v_token_num,
-        )
-        ben_attn_v_tar_mean =ben_attn_map_list_nc[target_layer_idx].mean(1)[0, -1 ,v_token_start:t_token_start]#
-        ben_attn_v_last_mean=ben_attn_map_list_nc[-1].mean(1)[0,-1,v_token_start:t_token_start]#
-        _, topk_v_last = torch.topk(ben_attn_v_last_mean, k=v_token_num)
-        _, topk_v_tar  = torch.topk(ben_attn_v_tar_mean, k=v_token_num)
-        
-        ben_last_logits = model.lm_head(ben_hidden_states_list_nc[-1])
-        ben_last_logits = ben_last_logits[:,-1,:]
-        ben_tar_logits = model.lm_head(ben_hidden_states_list_nc[target_layer_idx])
-        ben_tar_logits = ben_tar_logits[:,-1,:]
-        # _, topk_l_last = torch.topk(ben_last_logits, k=10)
-        # logger.print_log(tokenizer.decode(topk_l_last[0]))
-        # i_r =intersection_ratio(topk_v_last[:5],  topk_v_tar[:50], )
-        # i_r1=intersection_ratio(topk_v_last[:10], topk_v_tar[:50], )
-        # i_r2=intersection_ratio(topk_v_last[:50], topk_v_tar[:50], )
-        # i_r3=intersection_ratio(topk_v_last[:50], topk_v_tar[:100],)
-        # logger.print_log('ratio', i_r, i_r1, i_r2, i_r3)
+        with torch.no_grad():    
+            ben_image_embeds=model.encode_images(images)#+adv_perturbs
+            ben_input_embeds=cat_adv_embed(
+                fixed_input_embeds, ben_image_embeds, 
+                # ini_token_embeds,
+                start_idx=v_token_start, end_idx=text_token_start
+            )
+            ben_hidden_states_list_nc, ben_attn_map_list_nc, _= trace_transformer_layers_grad(
+                model,  
+                ben_input_embeds,
+                attention_mask,
+                start_layer=0,
+                end_layer=None,  
+                return_all=True,
+                v_token_start=v_token_start,
+                v_token_num=v_token_num,
+            )
+            ben_attn_v_tar_mean =ben_attn_map_list_nc[target_layer_idx].mean(1)[0, -1 ,v_token_start:t_token_start]#
+            ben_attn_v_last_mean=ben_attn_map_list_nc[-1].mean(1)[0,-1,v_token_start:t_token_start]#
+            _, topk_v_last = torch.topk(ben_attn_v_last_mean, k=v_token_num)
+            _, topk_v_tar  = torch.topk(ben_attn_v_tar_mean, k=v_token_num)
+            
+            ben_last_logits = model.lm_head(ben_hidden_states_list_nc[-1])
+            ben_last_logits = ben_last_logits[:,-1,:]
+            ben_tar_logits = model.lm_head(ben_hidden_states_list_nc[target_layer_idx])
+            ben_tar_logits = ben_tar_logits[:,-1,:]
+            # _, topk_l_last = torch.topk(ben_last_logits, k=10)
+            # logger.print_log(tokenizer.decode(topk_l_last[0]))
+            # i_r =intersection_ratio(topk_v_last[:5],  topk_v_tar[:50], )
+            # i_r1=intersection_ratio(topk_v_last[:10], topk_v_tar[:50], )
+            # i_r2=intersection_ratio(topk_v_last[:50], topk_v_tar[:50], )
+            # i_r3=intersection_ratio(topk_v_last[:50], topk_v_tar[:100],)
+            # logger.print_log('ratio', i_r, i_r1, i_r2, i_r3)
 
-        topk_v_last = topk_v_last+v_token_start
-        topk_v_tar  = topk_v_tar+v_token_start
-        inter_down=torch.tensor(
-            list(set(topk_v_last[0:100].tolist()) & set(topk_v_tar[0:100].tolist())),
-            dtype=torch.long
-        )
-        inter_up=torch.tensor(
-            list(set(topk_v_last[200:500].tolist()) & set(topk_v_tar[200:500].tolist())),
-            dtype=torch.long
-        )
-        
-        all_indices = torch.arange(ben_attn_map_list_nc[target_layer_idx].size(3))
+            topk_v_last = topk_v_last+v_token_start
+            topk_v_tar  = topk_v_tar+v_token_start
+            inter_down=torch.tensor(
+                list(set(topk_v_last[0:100].tolist()) & set(topk_v_tar[0:100].tolist())),
+                dtype=torch.long
+            )
+            inter_up=torch.tensor(
+                list(set(topk_v_last[200:500].tolist()) & set(topk_v_tar[200:500].tolist())),
+                dtype=torch.long
+            )
+            
+            all_indices = torch.arange(ben_attn_map_list_nc[target_layer_idx].size(3))
 
-        up_mask_v   = torch.zeros_like(all_indices, dtype=torch.bool)
-        down_mask_v = torch.zeros_like(all_indices, dtype=torch.bool)
-        # down_mask_l = torch.zeros(vocab_size, dtype=torch.bool)
-        # up_mask_l   = torch.zeros(vocab_size, dtype=torch.bool)
-        up_mask_v[topk_v_tar[-100:]]  = True
-        down_mask_v[topk_v_tar[:100]] = True
-        # up_mask_v[topk_v_tar[50:100]]  = True
-        # down_mask_v[topk_v_tar[20:50]] = True
-        # up_mask_v[inter_up]  = True
-        # down_mask_v[inter_down] = True
-        # up_mask_v[t_token_start:t_token_start+adv_num]  = True
-        # up_mask_v[topk_v_last[50:100]]  = True
-        # down_mask_v[topk_v_last[20:50]] = True
-        # down_mask_v[-1] = True
-        # down_mask_l[topk_l_last[:,0]] = True
-        # down_mask_l[3869]=True
-        # down_mask_l[1939]=True
-        # up_mask_l[topk_l_last[:,1:]] = True
-        # up_mask_l[2] = True
-        # up_mask_v[inter_down] = True
-        # down_mask_v[inter_up] = True        
+            up_mask_v   = torch.zeros_like(all_indices, dtype=torch.bool)
+            down_mask_v = torch.zeros_like(all_indices, dtype=torch.bool)
+            # down_mask_l = torch.zeros(vocab_size, dtype=torch.bool)
+            # up_mask_l   = torch.zeros(vocab_size, dtype=torch.bool)
+            up_mask_v[topk_v_tar[-100:]]  = True
+            down_mask_v[topk_v_tar[:100]] = True
+            # up_mask_v[topk_v_tar[50:100]]  = True
+            # down_mask_v[topk_v_tar[20:50]] = True
+            # up_mask_v[inter_up]  = True
+            # down_mask_v[inter_down] = True
+            # up_mask_v[t_token_start:t_token_start+adv_num]  = True
+            # up_mask_v[topk_v_last[50:100]]  = True
+            # down_mask_v[topk_v_last[20:50]] = True
+            # down_mask_v[-1] = True
+            # down_mask_l[topk_l_last[:,0]] = True
+            # down_mask_l[3869]=True
+            # down_mask_l[1939]=True
+            # up_mask_l[topk_l_last[:,1:]] = True
+            # up_mask_l[2] = True
+            # up_mask_v[inter_down] = True
+            # down_mask_v[inter_up] = True        
 
-        last_attn_map_nc = ben_attn_map_list_nc[-1]
-        last_attn_map_mean=last_attn_map_nc.mean(1)
-        last_down_v_map = get_attn_mean(
-            last_attn_map_mean, 
-            range=down_mask_v
-        )
-        last_up_v_map = get_attn_mean(
-            last_attn_map_mean, 
-            range=up_mask_v
-        )
-        logger.print_log('ben: ',
-            round(last_up_v_map.max().item(),5), round(last_up_v_map.min().item(),5),
-            round(last_down_v_map.max().item(),5), round(last_down_v_map.min().item(),5)
-        )
-    n_ben_hi=ben_hidden_states_list_nc[target_layer_idx][:,up_mask_v]
+            last_attn_map_nc = ben_attn_map_list_nc[-1]
+            last_attn_map_mean=last_attn_map_nc.mean(1)
+            last_down_v_map = get_attn_mean(
+                last_attn_map_mean, 
+                range=down_mask_v
+            )
+            last_up_v_map = get_attn_mean(
+                last_attn_map_mean, 
+                range=up_mask_v
+            )
+            logger.print_log('ben: ',
+                round(last_up_v_map.max().item(),5), round(last_up_v_map.min().item(),5),
+                round(last_down_v_map.max().item(),5), round(last_down_v_map.min().item(),5)
+            )
+        n_ben_hi=ben_hidden_states_list_nc[target_layer_idx][:,up_mask_v]
     # n_ben_hi=n_ben_hi+torch.randn_like(n_ben_hi)*n_ben_hi.std()*64/255
     for step in range(adv_steps):
         # adv_token_distribution = F.softmax(adv_token_logit, dim=1)
@@ -636,7 +613,7 @@ def opt_adv_image_token(
         # logits_down_mean=logits[:,down_mask_l].mean()
         loss_cur=(
             -up_mean*1.3
-            -all_image_logits.mean()*10
+            -all_image_logits.mean()*3
             +down_mean
             # +torch.norm(adv_image_embeds[:,-1:]-ini_token_embeds)
             # -logits_up_mean*1
@@ -764,5 +741,318 @@ def opt_adv_image_token(
             fixed_input_embeds, adv_image_embeds, 
             # adv_token_embeds, 
             start_idx=v_token_start, end_idx=text_token_start
+        )
+    return new_input_embeds, new_input_embeds.shape[1]-input_embeds.shape[1], flag
+
+
+def BPR_loss(y_tensor, p_list=None):#p1=None, p2=None, p3=None, p4=None, 
+    y_list=[]
+    for idx in range(len(p_list)):
+        y_list.append(y_tensor[p_list[idx]])
+    
+    loss_l=[]
+    for idx in range(1, len(p_list), 1):
+        tmp_diff=y_list[idx-1][:, None] - y_list[idx][None, :]
+        tmp_diff = torch.clamp(tmp_diff, min=-20, max=20)
+        tmp_loss=-torch.mean(torch.log(torch.sigmoid(tmp_diff)))
+        if tmp_loss==torch.inf:
+            tmp_loss=-torch.mean(-F.softplus(-tmp_diff)) 
+        loss_l.append(tmp_loss.unsqueeze(0))
+    return torch.sum(torch.cat(loss_l))
+
+    # y1 = y_tensor[p1]
+    # y2 = y_tensor[p2]
+    # y3 = y_tensor[p3]
+    # y4 = y_tensor[p4]
+    # diff1 = y1[:, None] - y2[None, :]
+    # diff2 = y2[:, None] - y3[None, :]
+    # diff3 = y3[:, None] - y4[None, :]
+
+    # diff1 = torch.clamp(diff1, min=-20, max=20)
+    # diff2 = torch.clamp(diff2, min=-20, max=20)
+    # diff3 = torch.clamp(diff3, min=-20, max=20)
+
+    # # BPR-style loss
+    # loss1 = -torch.mean(torch.log(torch.sigmoid(diff1)))
+    # if loss1==torch.inf:
+    #     loss1=-torch.mean(-F.softplus(-diff1)) 
+    # loss2 = -torch.mean(torch.log(torch.sigmoid(diff2)))
+    # if loss2==torch.inf:
+    #     loss2=-torch.mean(-F.softplus(-diff2))
+    # loss3 = -torch.mean(torch.log(torch.sigmoid(diff3)))
+    # if loss3==torch.inf:
+    #     loss3=-torch.mean(-F.softplus(-diff3))
+
+    # loss = loss1 + loss2 + loss3
+    # # if loss==torch.inf:
+    # #     print()
+    # return loss
+
+def opt_adv_image_text_pro(
+        model, input_embeds, position_ids, attention_mask,
+        image_shape,        
+        token_length_list,  
+        pre_prompt_length_list, 
+        input_ids=None,
+        images=None,  
+        tokenizer=None,
+        t_token=None,
+        target_layer_idx=1, 
+        adv_steps=20, 
+        adv_lr=1e-1,
+        stop_ths=[],
+        alpha=1,
+        logger=None,
+        epsilon=8/255,
+    ):
+
+    device = input_embeds.device
+    dtype=input_embeds.dtype
+    _, input_num, embed_dim = input_embeds.shape
+    v_token_num = image_shape
+    v_token_start = pre_prompt_length_list[0] if len(pre_prompt_length_list) != 0 else 0 
+    t_token_start = v_token_start+v_token_num
+
+    ben_layer=2
+    adv_num=50
+    
+    image_max=images.max()
+
+    logger.print_log('epsilon', epsilon)
+    
+    if epsilon>0:
+        adv_perturbs = torch.randn_like(images, dtype=dtype, device=device)
+        adv_perturbs = adv_perturbs*images.std()
+        adv_perturbs = adv_perturbs*epsilon
+    else:
+    # adv_perturbs = torch.zeros((1,3,140,24), dtype=dtype, device=device)
+        adv_perturbs = torch.zeros_like(images, dtype=dtype, device=device)
+    
+    torch.manual_seed(123)                   
+    torch.cuda.manual_seed(123)
+    fixed_input_embeds = input_embeds.detach()
+
+    # all_token_embedding = model.get_input_embeddings().weight
+    # vocab_size, emb_dim=all_token_embedding.shape
+    ini_token_embeds=fixed_input_embeds[:, -adv_num:, :].detach().clone()
+    # adv_token_embeds=ini_token_embeds.detach().clone()
+    adv_token_embeds=torch.randn_like(ini_token_embeds, dtype=dtype, device=device)*ini_token_embeds.std()
+    
+    # with torch.no_grad():   
+    #     ben_image_embeds=model.encode_images(images)
+    # adv_token_embeds=ben_image_embeds[:,-10:,:].detach().clone()
+
+    flag=True
+    if adv_steps>0: 
+        adv_perturbs.requires_grad_(True)
+        adv_token_embeds.requires_grad_(True)
+        optimizer = torch.optim.SGD([adv_perturbs, adv_token_embeds], lr=adv_lr)#
+        scheduler = StepLR(optimizer, step_size=20, gamma=0.5)
+        # flag=False
+    
+        with torch.no_grad():   
+            ben_image_embeds=model.encode_images(images)
+            ben_input_embeds=cat_adv_embed(
+                fixed_input_embeds, ben_image_embeds, 
+                # ini_token_embeds,
+                start_idx=v_token_start, end_idx=t_token_start
+            )
+            ben_hidden_states_list_nc, ben_attn_map_list_nc, _= trace_transformer_layers_grad(
+                model,  
+                ben_input_embeds,
+                attention_mask,
+                start_layer=0,
+                end_layer=None,  
+                return_all=True,
+                v_token_start=v_token_start,
+                v_token_num=v_token_num,
+            )
+            ben_attn_v_tar_mean =ben_attn_map_list_nc[target_layer_idx].mean(1)[0, -1 ,v_token_start:t_token_start]
+            _, topk_v_tar  = torch.topk(ben_attn_v_tar_mean, k=v_token_num)
+            # ben_attn_v_last_mean=ben_attn_map_list_nc[-1].mean(1)[0,-1,v_token_start:t_token_start]#
+            # _, topk_v_last = torch.topk(ben_attn_v_last_mean, k=v_token_num)
+            
+            # ben_last_logits = model.lm_head(ben_hidden_states_list_nc[-1])
+            # ben_last_logits = ben_last_logits[:,-1,:]
+            ben_tar_logits = model.lm_head(ben_hidden_states_list_nc[target_layer_idx])
+            ben_tar_logits = ben_tar_logits[:,-1,:]
+
+            # topk_v_last = topk_v_last+v_token_start
+            topk_v_tar  = topk_v_tar+v_token_start
+            
+            all_indices = torch.arange(ben_attn_map_list_nc[target_layer_idx].size(3))
+
+            most_mask   = torch.zeros_like(all_indices, dtype=torch.bool)
+            second_mask = torch.zeros_like(all_indices, dtype=torch.bool)
+            less_mask   = torch.zeros_like(all_indices, dtype=torch.bool)
+            patch_mask  = torch.zeros_like(all_indices, dtype=torch.bool)
+            unpatch_mask  = torch.zeros_like(all_indices, dtype=torch.bool)
+            most_mask[topk_v_tar[:192]] = True
+            second_mask[topk_v_tar[193:384]] = True
+            less_mask[topk_v_tar[530:]] = True
+
+            
+            patch_mask[t_token_start-adv_num:t_token_start]  = True
+            most_mask[t_token_start-adv_num:t_token_start]  = False
+            second_mask[t_token_start-adv_num:t_token_start]  = False
+            less_mask[t_token_start-adv_num:t_token_start]  = False
+            unpatch_mask[v_token_start:t_token_start-adv_num]=True # torch.logical_not(bool_tensor)
+            
+            sys_mask   = torch.zeros_like(all_indices, dtype=torch.bool)
+            image_mask   = torch.zeros_like(all_indices, dtype=torch.bool)
+            text_mask   = torch.zeros_like(all_indices, dtype=torch.bool)
+            sys_mask[0:v_token_start]=True
+            image_mask[v_token_start:t_token_start]=True
+            text_mask[t_token_start:]=True
+
+            # last_attn_map_nc = ben_attn_map_list_nc[-1]
+            # last_attn_map_mean=last_attn_map_nc.mean(1)
+            # last_down_v_map = get_attn_mean(
+            #     last_attn_map_mean, 
+            #     range=most_mask
+            # )
+            # last_up_v_map = get_attn_mean(
+            #     last_attn_map_mean, 
+            #     range=patch_mask
+            # )
+            # logger.print_log('ben: ',
+            #     round(last_up_v_map.max().item(),5), round(last_up_v_map.min().item(),5),
+            #     round(last_down_v_map.max().item(),5), round(last_down_v_map.min().item(),5)
+            # )
+    
+    for step in range(adv_steps):
+        adv_images=images+adv_perturbs#
+        adv_image_embeds = model.encode_images(adv_images)
+        adv_input_embeds = cat_adv_embed(
+            fixed_input_embeds, adv_image_embeds, 
+            adv_token_embeds, adv_patch_num=adv_num,
+            start_idx=v_token_start, end_idx=t_token_start
+        )
+        
+        hidden_states_list_nc, attn_scores_list_nc, attn_logits_list_nc= trace_transformer_layers_grad(
+            model, adv_input_embeds, attention_mask,
+            end_layer=target_layer_idx,  
+            return_all=True,
+        )
+        
+        attn_logits_nc = attn_logits_list_nc[target_layer_idx]
+        attn_logits_nc_mean = attn_logits_nc.mean(1)
+        attn_logits_nc_mean = get_attn_mean(
+            attn_logits_nc_mean
+        )
+        
+        loss_bpr1=BPR_loss(
+            attn_logits_nc_mean[0], 
+            p_list=[
+                patch_mask,
+                less_mask, 
+                most_mask,
+                second_mask, 
+            ]
+        )
+        loss_bpr2=BPR_loss(
+            attn_logits_nc_mean[0], 
+            p_list=[
+                less_mask, 
+                most_mask, 
+            ] 
+        )
+        loss_bpr3=BPR_loss(
+            attn_logits_nc_mean[0], 
+            p_list=[
+                sys_mask, 
+                image_mask
+            ] 
+        )
+        loss_bpr4=BPR_loss(
+            attn_logits_nc_mean[0], 
+            p_list=[
+                sys_mask, 
+                text_mask
+            ] 
+        )
+        
+        tar_attn_scores_nc = attn_scores_list_nc[target_layer_idx]
+        tar_attn_scores_mean =tar_attn_scores_nc.mean(1)
+        tar_attn_scores_mean = get_attn_mean(tar_attn_scores_mean)
+        attn_sum   = tar_attn_scores_mean.sum()
+        
+        sys_attn_ratio  =tar_attn_scores_mean[:,0:v_token_start].sum()/attn_sum
+        unpatch_image_attn_ratio=tar_attn_scores_mean[:,v_token_start:t_token_start-adv_num].sum()/attn_sum
+        image_attn_ratio=tar_attn_scores_mean[:,v_token_start:t_token_start].sum()/attn_sum
+        text_attn_ratio =tar_attn_scores_mean[:,t_token_start:input_num+1].sum()/attn_sum
+        
+        loss = (
+            torch.relu(loss_bpr1-0.9)*10
+            +torch.relu(loss_bpr2-0.9)*(5)
+            +torch.relu((unpatch_image_attn_ratio-0.15)*5)*10
+            # +F.softplus((0.08-text_attn_ratio))*10
+        )
+        
+        optimizer.zero_grad()
+        loss.backward()
+        
+        # adv_perturbs.grad=torch.clamp(adv_perturbs.grad, -epsilon*image_max*0.5, epsilon*image_max*0.5)
+        optimizer.step()
+        scheduler.step()
+        adv_perturbs.data=torch.clamp(adv_perturbs.data, -epsilon*image_max, epsilon*image_max)
+
+        # with torch.no_grad():
+            # last_hidden_states_list_nc, last_attn_map_list_nc, _= trace_transformer_layers_grad(
+            #     model, hidden_states_list_nc[target_layer_idx], attention_mask,
+            #     start_layer=target_layer_idx+1,  
+            #     return_all=True,
+            # )
+            # last_attn_map_nc = last_attn_map_list_nc[-1]
+            # last_attn_map_mean=last_attn_map_nc.mean(1)
+            # last_down_v_map = get_attn_mean(
+            #     last_attn_map_mean, 
+            #     range=most_mask
+            # )
+            # last_up_v_map = get_attn_mean(
+            #     last_attn_map_mean, 
+            #     range=patch_mask
+            # )
+            
+            # if target_layer_idx>=2:
+            # else:
+            #     tar_attn_logits_nc = last_attn_map_list_nc[1-target_layer_idx]
+        tar_most   = tar_attn_scores_mean[:, most_mask]
+        tar_second = tar_attn_scores_mean[:, second_mask]
+        tar_less   = tar_attn_scores_mean[:, less_mask]
+        tar_patch  = tar_attn_scores_mean[:, patch_mask]
+
+        tar_most_ratio  =(tar_most.sum()/attn_sum).item()
+        tar_second_ratio=(tar_second.sum()/attn_sum).item()
+        tar_less_ratio  =(tar_less.sum()/attn_sum).item()
+        tar_patch_ratio =(tar_patch.sum()/attn_sum).item()
+
+        logger.print_log(
+            step, 
+            'loss: ',      round(loss.item(),3),  round(loss_bpr1.item(),3),  round(loss_bpr2.item(),3), 
+            # round(patch_mean.item(),3), round(most_mean.item(),3), 
+            'attn_ratio:', round(sys_attn_ratio.item(),3), round(image_attn_ratio.item(),3), round(text_attn_ratio.item(),3),
+            'patch: ',     round(tar_patch_ratio,3),round(tar_patch.max().item(),5), round(tar_patch.min().item(),5),
+            'most: ',      round(tar_most_ratio,3), round(tar_most.max().item(),5),  round(tar_most.min().item(),5),
+            'second: ',    round(tar_second_ratio,3), round(tar_second.max().item(),5), round(tar_second.min().item(),5),
+            'less: ',      round(tar_less_ratio,3), round(tar_less.max().item(),5), round(tar_less.min().item(),5),
+        )
+
+        if (loss_bpr1.item()<=0.9):# or (loss_bpr2.item()<=0.9): #  and tar_up_v_map.min()>tar_down_v_map.max()
+            break
+        
+        # del loss, loss_cur, attn_logits_nc, attn_map_mean, down_v_logits, up_v_logits
+        # del last_attn_map_mean, last_attn_map_list_nc
+        del attn_logits_list_nc
+        del hidden_states_list_nc
+    
+    with torch.no_grad():
+        adv_images=images+adv_perturbs#+torch.randn_like(adv_perturbs)*images.std()*8/255
+        # adv_images= add_square_patch(images, top_left=(0,0), bottom_right=(140,24), patch_value=adv_perturbs) 
+        adv_image_embeds = model.encode_images(adv_images)
+        new_input_embeds=cat_adv_embed(
+            fixed_input_embeds, adv_image_embeds, 
+            adv_token_embeds, adv_patch_num=adv_num,
+            start_idx=v_token_start, end_idx=t_token_start
         )
     return new_input_embeds, new_input_embeds.shape[1]-input_embeds.shape[1], flag

@@ -51,6 +51,7 @@ from transformers.utils import (
 )
 from transformers.utils.import_utils import is_torch_fx_available
 from transformers.models.llama.configuration_llama import LlamaConfig
+from llava.eval.utils import intersection_ratio
 
 if is_flash_attn_2_available():
     from flash_attn import flash_attn_func, flash_attn_varlen_func
@@ -1314,6 +1315,12 @@ class LlamaModel(LlamaPreTrainedModel):
             attention_mask_list = []
             labels_list = []
 
+            # for i in range(batch_size):
+            #     image_index= self.image_token_posi[i]
+            #     start_index = image_index + image_tokens[i]
+            #     rand_index = torch.randint(image_tokens[i],(50,))+image_index
+            #     features[i][ rand_index, :]=features[i][ rand_index, :]+1.5
+
             if attention_mask is None:
                 attention_mask = torch.ones((batch_size,features.shape[1]), dtype=torch.bool, device=features.device)
             else:
@@ -1427,18 +1434,41 @@ class LlamaModel(LlamaPreTrainedModel):
                 # attention_avg_text = attention_avg_text[final_indices]
 
                 # top_rank_index=torch.arange(keep_length[i])
-                print(
+                self.logger.print_log(
                     (attention_avg_text.topk(2).values.sum()/attention_avg_text.sum()).item(),
                     (attention_avg_text.topk(20).values.sum()/attention_avg_text.sum()).item(),
                     (attention_avg_text.topk(50).values.sum()/attention_avg_text.sum()).item(),
                 )
+                pro=3
                 top_rank_index = attention_avg_text.topk(keep_length[i]).indices #, largest=False
+                # if pro>0 and pro<3:
+                #     top_rank_index = attention_avg_text.topk(keep_length[i]+144*pro).indices
+                #     top_rank_index = top_rank_index[144*(pro):(keep_length[i]+144*(pro)-50)]
+                # elif pro==3:
+                #     top_rank_index = attention_avg_text.topk(keep_length[i], largest=False).indices
+                #     top_rank_index = top_rank_index[50:]
                 top_rank_index = top_rank_index + image_index  
+                # if pro>=1:
+                #     top_rank_index = torch.cat([rand_index.to(top_rank_index.device), top_rank_index])
+                # top_rank_index2 = top_rank_index.clone()
+                # least_rank_index = attention_avg_text.topk(keep_length[i], largest=False).indices #
+                # top_rank_index2 = top_rank_index2 + image_index
+                # least_rank_index = least_rank_index + image_index
+                # least_len=50
+                # top_len=keep_length[i]-least_len
+                # top_rank_index = torch.cat([top_rank_index[:top_len], least_rank_index[:least_len]])
+                # self.logger.print_log('intersection_ratio', intersection_ratio(rand_index.cpu(), top_rank_index[0:50].cpu(), )) 
+                # en_end=min(50, keep_length[i])
+                # enlarge_index = top_rank_index[:en_end].clone()
+                # enlarge_index= enlarge_index.sort().values  
+                # top_rank_index = torch.randint(attention_avg_text.shape[0],(keep_length[i],))
                 top_rank_index= top_rank_index.sort().values  
 
                 start_index = image_index + image_tokens[i]
                 # tmp_embedding=features[i][ top_rank_index, :]
-                # features[i][ top_rank_index, :]=tmp_embedding+torch.randn_like(tmp_embedding)*tmp_embedding.std()*32/255
+                # features[i][ top_rank_index, :]=tmp_embedding+torch.randn_like(tmp_embedding)*tmp_embedding.std()*64/255
+                # features[i][ top_rank_index2[:min(least_len,top_len)], :]=features[i][ top_rank_index2[:min(least_len,top_len)], :]+1.5
+                # features[i][ least_rank_index[:least_len], :]=features[i][ least_rank_index[:least_len], :]+1.5
                 new_input_embeds = torch.cat([features[i][ :image_index, :] ,features[i][ top_rank_index, :], features[i][start_index:, :]], dim=0)
                 new_labels = torch.cat([labels[i][ :image_index],labels[i][ top_rank_index], labels[i][start_index:]], dim=0)
                 new_attention_mask = torch.cat([attention_mask[i][:image_index], attention_mask[i][top_rank_index], attention_mask[i][start_index:]], dim=0)

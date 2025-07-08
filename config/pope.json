@@ -1,0 +1,29 @@
+{
+    "image":{
+        "epsilon":"64/255", 
+        target_layer_idx=1, #1
+        adv_steps=50, #30
+        adv_lr=5e-1,#5e-3,
+        stop_ths=[0.9, 0.8, 0.002],#[3, 1, 0.005],#
+        alpha=0.9,
+        epsilon=64/255,
+        up_mask_v[topk_v_tar[-100:]]  = True
+        down_mask_v[topk_v_tar[:100]] = True
+        
+            -up_mean*1.3
+            -all_image_logits.mean()*10
+            +down_mean
+    },
+    "text":{
+        target_layer_idx=1,
+        adv_steps=30,
+        adv_lr=5e-3,
+        stop_ths=[0.9, 0.8, 0.002],
+        alpha=0.9,
+        epsilon=64/255,
+        up_mask_v[topk_v_last[50:100]]  = True
+        down_mask_v[topk_v_last[20:50]] = True
+            -up_mean*1.3
+            +down_mean
+    }
+}
