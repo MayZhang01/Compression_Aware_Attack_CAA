@@ -1434,11 +1434,6 @@ class LlamaModel(LlamaPreTrainedModel):
                 # attention_avg_text = attention_avg_text[final_indices]
 
                 # top_rank_index=torch.arange(keep_length[i])
-                self.logger.print_log(
-                    (attention_avg_text.topk(2).values.sum()/attention_avg_text.sum()).item(),
-                    (attention_avg_text.topk(20).values.sum()/attention_avg_text.sum()).item(),
-                    (attention_avg_text.topk(50).values.sum()/attention_avg_text.sum()).item(),
-                )
                 pro=3
                 top_rank_index = attention_avg_text.topk(keep_length[i]).indices #, largest=False
                 # if pro>0 and pro<3:
@@ -1457,14 +1452,19 @@ class LlamaModel(LlamaPreTrainedModel):
                 # least_len=50
                 # top_len=keep_length[i]-least_len
                 # top_rank_index = torch.cat([top_rank_index[:top_len], least_rank_index[:least_len]])
-                # self.logger.print_log('intersection_ratio', intersection_ratio(rand_index.cpu(), top_rank_index[0:50].cpu(), )) 
                 # en_end=min(50, keep_length[i])
                 # enlarge_index = top_rank_index[:en_end].clone()
                 # enlarge_index= enlarge_index.sort().values  
                 # top_rank_index = torch.randint(attention_avg_text.shape[0],(keep_length[i],))
+                start_index = image_index + image_tokens[i]
+                self.logger.print_log(
+                    round((attention_avg_text.topk(2).values.sum()/attention_avg_text.sum()).item(), 4),
+                    round((attention_avg_text.topk(20).values.sum()/attention_avg_text.sum()).item(), 4),
+                    round((attention_avg_text.topk(50).values.sum()/attention_avg_text.sum()).item(), 4),
+                    'inter_ratio', intersection_ratio(torch.arange(start_index-50, start_index, 1), top_rank_index[0:50].cpu()),
+                )
                 top_rank_index= top_rank_index.sort().values  
 
-                start_index = image_index + image_tokens[i]
                 # tmp_embedding=features[i][ top_rank_index, :]
                 # features[i][ top_rank_index, :]=tmp_embedding+torch.randn_like(tmp_embedding)*tmp_embedding.std()*64/255
                 # features[i][ top_rank_index2[:min(least_len,top_len)], :]=features[i][ top_rank_index2[:min(least_len,top_len)], :]+1.5

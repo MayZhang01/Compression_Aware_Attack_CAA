@@ -4,6 +4,7 @@ import os
 import torch
 import torch.nn.functional as F
 import json
+from PIL import Image
 class Logger:
     def __init__(self):
         # 创建以时间戳命名的日志文件名
@@ -23,7 +24,7 @@ class Logger:
         )
 
     def print_log(*args):
-        message = ' '.join(str(arg) for arg in args[1:])
+        message = '\t'.join(str(arg) for arg in args[1:])
         # for i, arg in enumerate(args):
         #     print(f"Argument {i + 1}: {arg}")
         print(message)
@@ -58,8 +59,8 @@ def intersection_ratio(a: torch.Tensor, b: torch.Tensor) -> float:
     total = min(a.numel(),b.numel())
 
     # Compute ratio
-    ratio = num_match / total
-    return ratio
+    ratio = num_match / (total+1e-3)
+    return round(ratio,3)
 
 def loss_norm(ground_logits, pred_logits, eps=1e-8):
     # soft_targets = F.softmax(ground_logits, dim=1)  # shape: (batch_size, num_classes)
@@ -139,3 +140,103 @@ def add_square_patch(image, top_left, bottom_right=None, p=None, patch_value=Non
     image_with_patch[:, :, x0:x1, y0:y1] = patch_value
     
     return image_with_patch
+
+def get_patch_mask(selected_indices, image_size=336, patch_size=14):
+    """
+    Generate a (image_size, image_size) mask where pixels corresponding to selected patch tokens are set to 1,
+    and all other pixels are 0.
+
+    Args:
+        selected_indices (torch.Tensor): 1D tensor containing the indices of selected tokens (values in [0, num_patches-1]).
+        image_size (int): Size of the input image (height and width). Default is 336.
+        patch_size (int): Size of each patch (height and width). Default is 14.
+
+    Returns:
+        torch.Tensor: A 2D tensor mask of shape (image_size, image_size) with 1s in selected regions.
+    """
+    num_patches_per_row = image_size // patch_size
+
+    # Initialize mask with zeros
+    mask = torch.zeros((image_size, image_size), dtype=torch.float16)
+
+    # Iterate over each selected token index
+    for idx in selected_indices:
+        # Compute the row and column index of the patch
+        row = idx // num_patches_per_row
+        col = idx % num_patches_per_row
+
+        # Compute the pixel coordinates of the patch
+        row_start = row * patch_size
+        row_end = (row + 1) * patch_size
+        col_start = col * patch_size
+        col_end = (col + 1) * patch_size
+
+        # Set the corresponding region in the mask to 1
+        mask[row_start:row_end, col_start:col_end] = 1.0
+
+    return mask
+
+
+def intersect_topk_range(t1, t2, k1, k2):
+    """
+    Compute the intersection of top-k1 to top-k2 indices between two tensors.
+
+    Args:
+        t1 (Tensor): A tensor of shape (1, 576).
+        t2 (Tensor): A tensor of shape (1, 576).
+        k1 (int): Start of the top-k range (inclusive).
+        k2 (int): End of the top-k range (inclusive).
+
+    Returns:
+        Tensor: A 1D tensor containing the indices that are common in the top-k1 to top-k2 
+                range of both t1 and t2.
+    """
+    # Validate shapes
+    assert t1.shape == t2.shape == (1, 576), "Both tensors must have shape (1, 576)"
+    assert 0 <= k1 <= k2 <= t1.shape[1], "k1 and k2 must define a valid range"
+
+    # Get top-k2 indices for each tensor (returns sorted in descending order of values)
+    t1_topk = torch.topk(t1, k=k2, dim=1).indices[0]
+    t2_topk = torch.topk(t2, k=k2, dim=1).indices[0]
+
+    # Slice from k1 to k2 to get the desired rank range
+    t1_range = t1_topk[k1:k2]
+    t2_range = t2_topk[k1:k2]
+
+    # Compute the intersection of the index sets and convert to a tensor
+    intersection = torch.tensor(
+        list(set(t1_range.tolist()) & set(t2_range.tolist())),
+        dtype=torch.long
+    )
+
+    return intersection
+
+def save_clip_tensor_as_image(tensor, filepath):
+    """
+    Save a tensor preprocessed by CLIP back as an image.
+
+    Args:
+        tensor (torch.Tensor): A tensor of shape (3, H, W) or (1, 3, H, W).
+        filepath (str): Path to save the output image (e.g., 'output.png').
+    """
+    # If tensor has batch dimension, remove it
+    tensor=tensor.cpu()
+    if tensor.dim() == 4:
+        tensor = tensor.squeeze(0)
+
+    # CLIP preprocessing normalization values
+    mean = torch.tensor([0.48145466, 0.4578275, 0.40821073]).view(3, 1, 1)
+    std = torch.tensor([0.26862954, 0.26130258, 0.27577711]).view(3, 1, 1)
+
+    # Unnormalize
+    tensor = tensor * std + mean
+
+    # Clip to [0,1]
+    tensor = torch.clamp(tensor, 0.0, 1.0)
+
+    # Convert to numpy and scale to [0,255]
+    np_image = tensor.mul(255).byte().permute(1, 2, 0).cpu().numpy()
+
+    # Convert to PIL and save
+    img = Image.fromarray(np_image)
+    img.save(filepath)

@@ -16,6 +16,7 @@ from PIL import Image
 import math
 import random
 from llava.eval.find_adv import opt_adv_pro, judge_adv, opt_adv_image_token, opt_adv_image_text_pro
+from llava.eval.find_adv_patch import opt_adv_image_patch
 from llava.eval.utils import Logger
 
 def split_list(lst, n):
@@ -88,7 +89,7 @@ class Counter:
                 metric[key]['Rej']=round((self.rej[key])/self.total,4)
                 metric[key]['Nos']=round((self.nonsense[key])/self.total,4)
         if logger is not None:
-            logger.print_log(' ', ' '.join(m for m in m_list))
+            logger.print_log('', '\t'.join(m for m in m_list))
             for key in metric:
                 if key =='ori':
                     logger.print_log(key, metric[key]['TPR'], metric[key]['TNR'], metric[key]['ACC'])
@@ -170,7 +171,7 @@ def eval_model(args):
     count, count2=0, 0
     total=0
     succ_list=[]
-    cp_list=[1, 0.2, 0.15, 0.1]
+    cp_list=[1, 0.5, 0.2, 0.15, 0.1]#, 0.5, 0.3
     counter=Counter(cp_list)
     for (input_ids, image_tensor, image_sizes, gt), line in tqdm(zip(data_loader, questions), total=len(questions)):
         if isinstance(gt, tuple):
@@ -197,7 +198,7 @@ def eval_model(args):
             )
             ori_prompt_len=model.model.prompt_len[0]
         
-        adv_input_embeds, adv_num, flag=opt_adv_image_text_pro(
+        adv_input_embeds, adv_num, flag=opt_adv_image_patch(
             model, new_input_embeds, position_ids, attention_mask,
             input_ids=input_ids,
             tokenizer=tokenizer,
@@ -206,11 +207,11 @@ def eval_model(args):
             token_length_list=[new_input_embeds.shape[1]],  
             pre_prompt_length_list=[torch.where(input_ids==-200)[1][0].item()], 
             target_layer_idx=2, #1
-            adv_steps=30, #30
-            adv_lr=1e-3,#5e-3,
+            adv_steps=0, #30
+            adv_lr=1,#5e-3,1e-3,
             stop_ths=[0.9, 0.8, 0.002],#[3, 1, 0.005],#
             alpha=0.9,
-            epsilon=4/255,
+            epsilon=0/255,
             logger=logger
         )
 
@@ -223,8 +224,6 @@ def eval_model(args):
                     model.model.image_token_ratio_list.insert(0, 1.0)
                 model.model.prompt_len[0]=ori_prompt_len+adv_num
                 adv_output_ids = model.generate(
-                    # input_ids,
-                    # images=image_tensor.to(dtype=torch.float16, device='cuda', non_blocking=True),
                     inputs_embeds=adv_input_embeds,
                     image_sizes=image_sizes,
                     do_sample=True if args.temperature > 0 else False,
@@ -241,7 +240,6 @@ def eval_model(args):
             if model_class_name == "LlavaLlamaForCausalLM_PDrop":
                 model.model.layer_list = []
                 model.model.image_token_ratio_list = []
-                # model.model.image_token_ratio_list.insert(0, 1.0)
             model.model.prompt_len[0]=ori_prompt_len
             output_ids = model.generate(
                 input_ids,
