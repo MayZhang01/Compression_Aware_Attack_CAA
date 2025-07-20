@@ -262,6 +262,12 @@ def cos_loss(tensor_a, tensor_b):
     # Return mean distance as loss
     return cosine_distance.mean()
 
+def weighted_sign_mse_loss(x, y, k=1):
+    diff = x - y
+    sign_diff = torch.tanh(x*5) - torch.tanh(y*5)
+    loss = (diff ** 2) * (sign_diff ** 2)#
+    return loss.mean()
+
 def opt_adv_image_patch(
         model, input_embeds,  attention_mask,
         image_shape,        
@@ -288,8 +294,6 @@ def opt_adv_image_patch(
 
     
     image_max=images.max()
-
-    logger.print_log('epsilon', epsilon)
     
     if epsilon>0:
         adv_perturbs = torch.randn_like(images, dtype=dtype, device=device)
@@ -309,6 +313,7 @@ def opt_adv_image_patch(
     
 
     flag=True
+    patch_inter_ratio, least_inter_ratio=0,0
     if adv_steps>0: 
         adv_perturbs.requires_grad_(True)
         adv_patch.requires_grad_(True)
@@ -321,7 +326,7 @@ def opt_adv_image_patch(
             fixed_input_embeds, ben_image_embeds, 
             start_idx=v_token_start, end_idx=t_token_start
         )
-        _, ben_attn_score_list_nc, _= trace_transformer_layers_grad(
+        ben_hidden_states_list_nc, ben_attn_score_list_nc, _= trace_transformer_layers_grad(
             model,  
             ben_input_embeds,
             attention_mask,
@@ -380,7 +385,7 @@ def opt_adv_image_patch(
 
         
         # Get first transformer block
-        first_block = model.model.layers[0]
+        first_block = model.model.layers[target_layer_idx]
         # The Q and K projection layers are Linear modules
         q_proj = first_block.self_attn.q_proj
         k_proj = first_block.self_attn.k_proj
@@ -390,12 +395,15 @@ def opt_adv_image_patch(
         W_Q = q_proj.weight.detach()
         W_K = k_proj.weight.detach()
 
-        print("W_Q shape:", W_Q.shape)
-        print("W_K shape:", W_K.shape)
+        # print("W_Q shape:", W_Q.shape)
+        # print("W_K shape:", W_K.shape)
 
         # Select the first token embedding (for example)
         # Here x is (hidden_dim,)
-        x = fixed_input_embeds[0, -1]
+        if target_layer_idx>0:
+            x = ben_hidden_states_list_nc[target_layer_idx-1][0, -1]
+        else:
+            x = fixed_input_embeds[0, -1]
 
         # Compute q0 = x @ W_Q
         q0 = torch.matmul(x, W_Q)
@@ -403,8 +411,8 @@ def opt_adv_image_patch(
 
         # Compute v = W_K.T @ q0
         v = torch.matmul(W_K.T, q0)
-        noise_patch=v.unsqueeze(0).repeat(n_patch_num, 1)
-        noise_least=v.unsqueeze(0).repeat(l_patch_num, 1)
+        maxQ_patch=v.unsqueeze(0).repeat(n_patch_num, 1)
+        maxQ_least=v.unsqueeze(0).repeat(l_patch_num, 1)
         # noise_patch=torch.randn_like(ben_input_embeds[:,noise_patch_mask], dtype=dtype, device=device)
         # noise_least=torch.randn_like(ben_input_embeds[:,least_patch_mask], dtype=dtype, device=device)
 
@@ -431,8 +439,7 @@ def opt_adv_image_patch(
         attn_logits_nc_mean = get_attn_mean(
             attn_logits_nc_mean
         )
-        
-        
+           
         loss_list, loss_list_o=[], []
         if l_patch_num>0:
             loss_bpr_l=BPR_loss(
@@ -443,8 +450,16 @@ def opt_adv_image_patch(
                 ] 
             )
             loss_list.append(torch.relu(loss_bpr_l-bpr_ths)*10)
-            loss_dir_l=torch.norm(torch.sign(noise_least)-adv_input_embeds[:,least_patch_mask])
-            loss_list.append((loss_dir_l-400))
+            # loss_dir_l=torch.norm(torch.sign(noise_least)-adv_input_embeds[:,least_patch_mask])
+            # loss_dir_l=torch.norm(torch.sign(noise_least)-hidden_states_list_nc[target_layer_idx][:,least_patch_mask])
+            # loss_list.append((loss_dir_l-400))
+            # loss_dir_l=F.mse_loss(hidden_states_list_nc[target_layer_idx][:,least_patch_mask], torch.sign(noise_least))
+            loss_dir_l=weighted_sign_mse_loss(
+                hidden_states_list_nc[target_layer_idx][:,least_patch_mask], 
+                maxQ_least, 
+                k=5
+            )
+            loss_list.append((loss_dir_l)*10)
             loss_list_o.append(loss_bpr_l)
             loss_list_o.append(loss_dir_l)
         if n_patch_num>0:
@@ -456,10 +471,24 @@ def opt_adv_image_patch(
                 ] 
             )
             loss_list.append(torch.relu(loss_bpr_p-bpr_ths)*10)
-            loss_dir_p=torch.norm(torch.sign(noise_patch)-adv_input_embeds[:,noise_patch_mask])
-            loss_list.append((loss_dir_p-400))
+            # loss_dir_p=torch.norm(torch.sign(noise_patch)-adv_input_embeds[:,noise_patch_mask])
+            # loss_dir_p=torch.norm(torch.sign(noise_patch)-hidden_states_list_nc[target_layer_idx][:,noise_patch_mask])
+            # loss_list.append((loss_dir_p-400))
+            loss_dir_p=weighted_sign_mse_loss(
+                hidden_states_list_nc[target_layer_idx][:,noise_patch_mask], 
+                maxQ_patch, 
+                k=5
+            )
+            loss_dir_p2=F.mse_loss(
+                hidden_states_list_nc[target_layer_idx][:,noise_patch_mask], 
+                # ben_hidden_states_list_nc[target_layer_idx][:,noise_patch_mask]+5*torch.sign(noise_patch),
+                maxQ_patch,
+                # dim=-1
+            )
+            loss_list.append((loss_dir_p)*10)
             loss_list_o.append(loss_bpr_p)
             loss_list_o.append(loss_dir_p)
+            loss_list_o.append(loss_dir_p2)
         loss_bpr=BPR_loss(
             attn_logits_nc_mean[0], 
             p_list=[
@@ -565,4 +594,4 @@ def opt_adv_image_patch(
         # topk_v_new = topk_v_new+v_token_start
         # noise=torch.randn_like(new_input_embeds[:,most_mask])
         # new_input_embeds[:,most_mask]=new_input_embeds[:,most_mask]+torch.sign(noise)*new_input_embeds.max()*16/255#
-    return new_input_embeds, new_input_embeds.shape[1]-input_embeds.shape[1], flag
+    return new_input_embeds, new_input_embeds.shape[1]-input_embeds.shape[1], patch_inter_ratio, least_inter_ratio

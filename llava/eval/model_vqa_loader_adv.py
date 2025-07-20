@@ -18,6 +18,8 @@ import random
 from llava.eval.find_adv import opt_adv_pro, judge_adv, opt_adv_image_token, opt_adv_image_text_pro
 from llava.eval.find_adv_patch import opt_adv_image_patch
 from llava.eval.utils import Logger
+import numpy as np
+from llava.eval.m4c_evaluator import TextVQAAccuracyEvaluator
 
 def split_list(lst, n):
     """Split a list into n (roughly) equal-sized chunks"""
@@ -64,10 +66,62 @@ class CustomDataset(Dataset):
 
     def __len__(self):
         return len(self.questions)
+class Counter_acc:
+    def __init__(self, cp_list=[], evaluator=None):
+        self.score={'ori':0}
+        self.least_inter_ratio, self.patch_inter_ratio=[],[]
+        self.rej, self.nonsense={}, {}
+        self.total=0
+        self.evaluator=evaluator
+        for cp in cp_list:
+            self.score[str(cp)]=0
+            self.rej[str(cp)]=0
+            self.nonsense[str(cp)]=0
+    
+    def add_rlt(self, gt, rlt):
+        self.total+=1
+        for key in rlt:
+            if key in ['least_inter_ratio', 'patch_inter_ratio']:
+                continue
+            tmp_s=self.evaluator.eval_pred_per_sample(rlt[key], gt)
+            self.score[key]+=tmp_s
+            rlt[key]=(rlt[key], tmp_s)
+                
+        # for key in rlt:
+        #     if key in ['least_inter_ratio', 'patch_inter_ratio']:
+        #         continue
+        #     if key=='ori':
+        #         continue
+
+        #     if rlt[key]=='':
+        #         self.rej[key]+=1
+        #     elif (judge_adv(rlt[key], 'Yes') or judge_adv(rlt[key], 'No'))==False:
+        #         self.nonsense[key]+=1
+        self.least_inter_ratio.append(rlt['least_inter_ratio'])
+        self.patch_inter_ratio.append(rlt['patch_inter_ratio'])
+        return rlt
+    
+    def get_metric(self, logger=None):
+        metric={}
+        m_list=["ACC"]
+        for key in self.score:
+            metric[key]={}
+            metric[key]['ACC']=round(self.score[key]/self.total,4)
+            # if key !='ori':
+            #     metric[key]['Rej']=round((self.rej[key])/total,4)
+            #     metric[key]['Nos']=round((self.nonsense[key])/total,4)
+        if logger is not None:
+            logger.print_log('', '\t'.join(m for m in m_list))
+            logger.print_log('least_inter_ratio', np.mean(self.least_inter_ratio))
+            logger.print_log('patch_inter_ratio', np.mean(self.patch_inter_ratio))
+            for key in metric:
+                logger.print_log(key,  metric[key]['ACC'])
+        return metric
 
 class Counter:
     def __init__(self, cp_list=[]):
         self.TP, self.FP, self.TN, self.FN={'ori':0}, {'ori':0}, {'ori':0}, {'ori':0}
+        self.least_inter_ratio, self.patch_inter_ratio=[],[]
         self.rej, self.nonsense={}, {}
         self.total=0
         for cp in cp_list:
@@ -79,41 +133,50 @@ class Counter:
             self.nonsense[str(cp)]=0
     def get_metric(self, logger=None):
         metric={}
-        m_list=["TPR", "TNR", "ACC", "Rej", "Nos"]
+        m_list=["TPR", "FNR","TNR", "FPR", "ACC", "Rej", "Nos"]
         for key in self.TP:
             metric[key]={}
+            total=self.TP[key]+self.FN[key]+self.TN[key]+self.FP[key]
             metric[key]['TPR']=round(self.TP[key]/(self.TP[key]+self.FN[key]+1e-8),4)
             metric[key]['FNR']=round(self.FN[key]/(self.TP[key]+self.FN[key]+1e-8),4)
             metric[key]['TNR']=round(self.TN[key]/(self.TN[key]+self.FP[key]+1e-8),4)
             metric[key]['FPR']=round(self.FP[key]/(self.TN[key]+self.FP[key]+1e-8),4)
-            metric[key]['ACC']=round((self.TP[key]+self.TN[key])/self.total,4)
+            metric[key]['ACC']=round((self.TP[key]+self.TN[key])/total,4)
             if key !='ori':
-                metric[key]['Rej']=round((self.rej[key])/self.total,4)
-                metric[key]['Nos']=round((self.nonsense[key])/self.total,4)
+                metric[key]['Rej']=round((self.rej[key])/total,4)
+                metric[key]['Nos']=round((self.nonsense[key])/total,4)
         if logger is not None:
             logger.print_log('', '\t'.join(m for m in m_list))
+            logger.print_log('least_inter_ratio', np.mean(self.least_inter_ratio))
+            logger.print_log('patch_inter_ratio', np.mean(self.patch_inter_ratio))
             for key in metric:
                 if key =='ori':
-                    logger.print_log(key, metric[key]['TPR'], metric[key]['TNR'], metric[key]['ACC'])
+                    logger.print_log(key, metric[key]['TPR'], metric[key]['FNR'], metric[key]['TNR'], metric[key]['FPR'], metric[key]['ACC'])
                 else:
-                    logger.print_log(key, metric[key]['TPR'], metric[key]['TNR'], metric[key]['ACC'], metric[key]['Rej'], metric[key]['Nos'])
+                    logger.print_log(key, metric[key]['TPR'], metric[key]['FNR'], metric[key]['TNR'], metric[key]['FPR'], metric[key]['ACC'], metric[key]['Rej'], metric[key]['Nos'])
         return metric
             
     def add_rlt(self, gt, rlt):
         self.total+=1
         if gt=='Yes':
             for key in rlt:
+                if key in ['least_inter_ratio', 'patch_inter_ratio']:
+                    continue
                 if judge_adv(rlt[key], gt):
                     self.TP[key]+=1
                 else:
                     self.FN[key]+=1
         else:
             for key in rlt:
+                if key in ['least_inter_ratio', 'patch_inter_ratio']:
+                    continue
                 if judge_adv(rlt[key], gt):
                     self.TN[key]+=1
                 else:
                     self.FP[key]+=1
         for key in rlt:
+            if key in ['least_inter_ratio', 'patch_inter_ratio']:
+                continue
             if key=='ori':
                 continue
 
@@ -121,6 +184,8 @@ class Counter:
                 self.rej[key]+=1
             elif (judge_adv(rlt[key], 'Yes') or judge_adv(rlt[key], 'No'))==False:
                 self.nonsense[key]+=1
+        self.least_inter_ratio.append(rlt['least_inter_ratio'])
+        self.patch_inter_ratio.append(rlt['patch_inter_ratio'])
 
 
 def collate_fn(batch):
@@ -138,6 +203,12 @@ def create_data_loader(questions, image_folder, tokenizer, image_processor, mode
     return data_loader
 
 def eval_model(args):
+    logger=Logger()
+    # logger.print_log(args)
+    for key, value in args.__class__.__dict__.items():
+        if not key.startswith('__'):
+            logger.print_log(f"{key}: {value}")
+
     # Model
     disable_torch_init()
     model_path = os.path.expanduser(args.model_path)
@@ -150,11 +221,10 @@ def eval_model(args):
         model_name,
         pdrop_infer
     )
+    model.model.logger=logger
 
     model_class_name = type(model).__name__
 
-    logger=Logger()
-    model.model.logger=logger
     questions = [json.loads(q) for q in open(os.path.expanduser(args.question_file), "r")]
     random.seed(124)
     random.shuffle(questions)
@@ -174,7 +244,11 @@ def eval_model(args):
     total=0
     succ_list=[]
     cp_list=[1, 0.5, 0.2, 0.15, 0.1]#, 0.5, 0.3
-    counter=Counter(cp_list)
+    if 'textvqa' in args.question_file:
+        evaluator = TextVQAAccuracyEvaluator()
+        counter=Counter_acc(cp_list, evaluator=evaluator)
+    else:
+        counter=Counter(cp_list)
     for (input_ids, image_tensor, image_sizes, gt), line in tqdm(zip(data_loader, questions), total=len(questions)):
         if isinstance(gt, tuple):
             gt=gt[0]
@@ -200,25 +274,25 @@ def eval_model(args):
             )
             ori_prompt_len=model.model.prompt_len[0]
         
-        adv_input_embeds, adv_num, flag=opt_adv_image_patch(
+        adv_input_embeds, adv_num, patch_inter_ratio, least_inter_ratio=opt_adv_image_patch(
             model, new_input_embeds, attention_mask,
             images=image_tensor.to(dtype=torch.float16, device='cuda', non_blocking=True), 
             image_shape=576,        
             # token_length_list=[new_input_embeds.shape[1]],  
             pre_prompt_length_list=[torch.where(input_ids==-200)[1][0].item()], 
-            target_layer_idx=2, 
-            adv_steps=30, 
-            adv_lr=1,
-            epsilon=64/255,
-            n_patch_num=0,
-            l_patch_num=100,
-            bpr_ths=0.1,
-            image_size=336,
-            patch_size=14,
+            target_layer_idx=args.target_layer_idx, 
+            adv_steps=args.adv_steps, 
+            adv_lr=args.adv_lr,
+            epsilon=args.epsilon,
+            n_patch_num=args.n_patch_num,
+            l_patch_num=args.l_patch_num,
+            bpr_ths=args.bpr_ths,
+            image_size=args.image_size,
+            patch_size=args.patch_size,
             logger=logger,
         )
 
-        rlt={}
+        rlt={'patch_inter_ratio':patch_inter_ratio, 'least_inter_ratio':least_inter_ratio}
         for cp in cp_list:
             with torch.inference_mode():
                 if model_class_name == "LlavaLlamaForCausalLM_PDrop":
@@ -258,7 +332,10 @@ def eval_model(args):
             )
         outputs = tokenizer.batch_decode(output_ids, skip_special_tokens=True)[0].strip()
         rlt['ori']=outputs
-        counter.add_rlt(gt=gt, rlt=rlt)
+        if 'textvqa' in args.question_file:
+            rlt=counter.add_rlt(gt=gt, rlt=rlt)
+        else:
+            counter.add_rlt(gt=gt, rlt=rlt)
         rlt['gt']=gt
         logger.print_log(idx, ':', cur_prompt.replace('\n', ' '))
         logger.print_log(rlt)

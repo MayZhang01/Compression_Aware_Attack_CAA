@@ -255,6 +255,12 @@ class TextVQAAccuracyEvaluator:
 
         accuracy = sum(pred_scores) / len(pred_scores)
         return accuracy
+    
+    def eval_pred_per_sample(self, pred, gt):
+        pred_answer = self.answer_processor(pred)
+        unique_answer_scores = self._compute_answer_scores(gt)
+        score = unique_answer_scores.get(pred_answer, 0.0)
+        return score
 
 
 class STVQAAccuracyEvaluator:
