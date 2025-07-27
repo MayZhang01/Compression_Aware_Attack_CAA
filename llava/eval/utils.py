@@ -240,3 +240,11 @@ def save_clip_tensor_as_image(tensor, filepath):
     # Convert to PIL and save
     img = Image.fromarray(np_image)
     img.save(filepath)
+
+def extract_name_from_path(s):
+    last_slash = s.rfind('/')
+    last_dot = s.rfind('.')
+    if 0 <= last_slash < last_dot:
+        return s[last_slash + 1:last_dot]
+    else:
+        return None

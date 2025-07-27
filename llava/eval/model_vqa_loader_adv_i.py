@@ -15,9 +15,10 @@ from torch.utils.data import Dataset, DataLoader
 from PIL import Image
 import math
 import random
-from llava.eval.find_adv import opt_adv_pro, judge_adv, opt_adv_image_token, opt_adv_image_text_pro
+from llava.eval.find_adv import opt_adv_pro, opt_adv_image_token, opt_adv_image_text_pro
 from llava.eval.find_adv_patch import opt_adv_image_patch
-from llava.eval.utils import Logger
+from llava.eval.utils import Logger, extract_name_from_path
+from llava.eval.find_adv_util import judge_adv
 import numpy as np
 from llava.eval.m4c_evaluator import TextVQAAccuracyEvaluator
 
@@ -213,6 +214,9 @@ def eval_model(args):
     disable_torch_init()
     model_path = os.path.expanduser(args.model_path)
     model_name = get_model_name_from_path(model_path)
+    dataset_name=extract_name_from_path(args.question_file)
+    logger.print_log('model_name:', model_name)
+    logger.print_log('dataset_name:', dataset_name)
     if args.layer_list is not None:
         pdrop_infer = True  # whether to use pdrop infer
     tokenizer, model, image_processor, context_len = load_pretrained_model(
@@ -243,12 +247,15 @@ def eval_model(args):
     count, count2=0, 0
     total=0
     succ_list=[]
+    layer_list=eval(args.layer_list)
     cp_list=[1, 0.5, 0.2, 0.15, 0.1]#, 0.5, 0.3
     if 'textvqa' in args.question_file:
         evaluator = TextVQAAccuracyEvaluator()
         counter=Counter_acc(cp_list, evaluator=evaluator)
     else:
         counter=Counter(cp_list)
+
+    adv_data_dict={}
     for (input_ids, image_tensor, image_sizes, gt), line in tqdm(zip(data_loader, questions), total=len(questions)):
         if isinstance(gt, tuple):
             gt=gt[0]
@@ -296,7 +303,7 @@ def eval_model(args):
         for cp in cp_list:
             with torch.inference_mode():
                 if model_class_name == "LlavaLlamaForCausalLM_PDrop":
-                    model.model.layer_list = [2]
+                    model.model.layer_list = layer_list
                     model.model.image_token_ratio_list = [cp]
                     model.model.image_token_ratio_list.insert(0, 1.0)
                 model.model.prompt_len[0]=ori_prompt_len+adv_num
@@ -341,7 +348,34 @@ def eval_model(args):
         logger.print_log(rlt)
         if counter.total%20==0 and counter.total>0:
             counter.get_metric(logger=logger)
+        adv_data_dict[idx]={
+            'input_ids': input_ids, 
+            'image_tensor': image_tensor, 
+            'image_sizes': image_sizes, 
+            'gt': gt,
+            'attention_mask': attention_mask,
+            'new_input_embeds': new_input_embeds,
+            'ori_prompt_len':ori_prompt_len,
+            'adv_input_embeds': adv_input_embeds,
+            'adv_num': adv_num,
+            'patch_inter_ratio': patch_inter_ratio, 
+            'least_inter_ratio': least_inter_ratio,
+            'position_ids': position_ids,
+            'rlt':rlt,
+        }
     counter.get_metric(logger=logger)
+    torch.save(
+        adv_data_dict, 
+        'saved_data/'+'_'.join([
+            model_name, 
+            dataset_name,
+            'adv_image',
+            str(args.n_patch_num),
+            str(args.l_patch_num),
+            str(args.epsilon),
+            str(len(questions)),
+        ])+'.pt'
+    )
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

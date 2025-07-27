@@ -3,7 +3,7 @@ os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 
 from llava.model.builder import load_pretrained_model
 from llava.mm_utils import get_model_name_from_path
-from llava.eval.model_vqa_loader_adv import eval_model
+from llava.eval.model_vqa_loader_filt import eval_model
 import torch
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
