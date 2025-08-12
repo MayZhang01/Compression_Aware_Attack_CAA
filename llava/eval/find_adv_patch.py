@@ -274,7 +274,7 @@ def opt_adv_image_patch(
         topk_image=topk_image+v_token_start
 
         patch_inter_ratio=intersection_ratio(topk_image[0,:n_patch_num], all_indices[t_token_start-n_patch_num:t_token_start])
-        least_inter_ratio=intersection_ratio(topk_image[0,l_patch_num:], topk_v_tar[-l_patch_num:])
+        least_inter_ratio=intersection_ratio(topk_image[0,:l_patch_num], topk_v_tar[-l_patch_num:])
 
         if patch_inter_ratio<0.2:
             print()
@@ -303,28 +303,10 @@ def opt_adv_image_patch(
         adv_images=images
         adv_images=adv_images*(1-pixel_patch_mask)+adv_patch*pixel_patch_mask
         adv_images=adv_images+adv_perturbs*pixel_least_mask
-        # adv_images=adv_images*pixel_patch_mask+adv_patch*(1-pixel_patch_mask)
-        # adv_images = torch.zeros_like(images)
         save_clip_tensor_as_image(adv_images.cpu(),'1.png')
         adv_image_embeds = model.encode_images(adv_images)
         new_input_embeds=cat_adv_embed(
             fixed_input_embeds, adv_image_embeds, 
             start_idx=v_token_start, end_idx=t_token_start
         )
-        # new_input_embeds[:,noise_patch_mask]=torch.sign(noise_dir)*0.1#+=torch.sign(noise_dir)*0.5
-        # new_hidden_states_list_nc, new_attn_map_list_nc, _= trace_transformer_layers_grad(
-        #     model,  
-        #     new_input_embeds,
-        #     attention_mask,
-        #     start_layer=0,
-        #     end_layer=target_layer_idx,  
-        #     return_all=True,
-        #     v_token_start=v_token_start,
-        #     v_token_num=v_token_num,
-        # )
-        # new_attn_v_tar_mean =new_attn_map_list_nc[target_layer_idx].mean(1)[0, -1 ,v_token_start:t_token_start]
-        # _, topk_v_new  = torch.topk(new_attn_v_tar_mean, k=v_token_num)
-        # topk_v_new = topk_v_new+v_token_start
-        # noise=torch.randn_like(new_input_embeds[:,most_mask])
-        # new_input_embeds[:,most_mask]=new_input_embeds[:,most_mask]+torch.sign(noise)*new_input_embeds.max()*16/255#
-    return new_input_embeds, new_input_embeds.shape[1]-input_embeds.shape[1], patch_inter_ratio, least_inter_ratio
+    return adv_images, new_input_embeds, new_input_embeds.shape[1]-input_embeds.shape[1], patch_inter_ratio, least_inter_ratio

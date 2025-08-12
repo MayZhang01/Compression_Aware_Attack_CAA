@@ -6,7 +6,9 @@ from torch.optim.lr_scheduler import StepLR
 from llava.eval.utils import loss_norm, intersection_ratio, add_square_patch, get_patch_mask, save_clip_tensor_as_image
 
 
-def judge_adv(output_c, output_nc):
+def judge_adv(output_c:str, output_nc:str):
+    output_c=output_c.lower()
+    output_nc=output_nc.lower()
     if output_c==output_nc:
         return True
     elif output_c.find(output_nc)>-1:# and len(output_c)<len(output_nc)*2:

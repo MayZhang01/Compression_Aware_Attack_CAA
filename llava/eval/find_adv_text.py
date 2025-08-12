@@ -532,7 +532,7 @@ def opt_adv_text_gcg(
                 best_attn_scores_nc = this_attn_scores_list_nc[target_layer_idx]
 
         # Step 10: Update adv_tokens with best found
-        adv_token_ids=best_token_ids.detach().clone()
+        adv_token_ids = best_token_ids.detach().clone()
         adv_tokens = best_tokens.detach().clone()
         adv_tokens.requires_grad_()
 

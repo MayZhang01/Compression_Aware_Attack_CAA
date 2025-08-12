@@ -52,7 +52,6 @@ def eval_model(args):
     logger.print_log(rlt_path)
     dataset = torch.load(rlt_path)
     
-    
     layer_list=eval(args.layer_list)
     cp_list=[1, 0.5, 0.2, 0.15, 0.1]#, 0.5, 0.3
     if 'textvqa' in args.question_file:

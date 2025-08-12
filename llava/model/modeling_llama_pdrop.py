@@ -1434,7 +1434,7 @@ class LlamaModel(LlamaPreTrainedModel):
                 # attention_avg_text = attention_avg_text[final_indices]
 
                 # top_rank_index=torch.arange(keep_length[i])
-                pro=3
+                # pro=3
                 top_rank_index = attention_avg_text.topk(keep_length[i]).indices #, largest=False
                 # if pro>0 and pro<3:
                 #     top_rank_index = attention_avg_text.topk(keep_length[i]+144*pro).indices
@@ -1443,6 +1443,7 @@ class LlamaModel(LlamaPreTrainedModel):
                 #     top_rank_index = attention_avg_text.topk(keep_length[i], largest=False).indices
                 #     top_rank_index = top_rank_index[50:]
                 top_rank_index = top_rank_index + image_index  
+                self.top_rank_index=top_rank_index
                 # if pro>=1:
                 #     top_rank_index = torch.cat([rand_index.to(top_rank_index.device), top_rank_index])
                 # top_rank_index2 = top_rank_index.clone()
