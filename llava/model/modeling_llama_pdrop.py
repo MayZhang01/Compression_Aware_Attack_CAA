@@ -1459,10 +1459,11 @@ class LlamaModel(LlamaPreTrainedModel):
                 # top_rank_index = torch.randint(attention_avg_text.shape[0],(keep_length[i],))
                 start_index = image_index + image_tokens[i]
                 self.logger.print_log(
-                    round((attention_avg_text.topk(2).values.sum()/attention_avg_text.sum()).item(), 4),
-                    round((attention_avg_text.topk(20).values.sum()/attention_avg_text.sum()).item(), 4),
-                    round((attention_avg_text.topk(50).values.sum()/attention_avg_text.sum()).item(), 4),
-                    'inter_ratio', intersection_ratio(torch.arange(start_index-50, start_index, 1), top_rank_index[0:50].cpu()),
+                    # round((attention_avg_text.topk(2).values.sum()/attention_avg_text.sum()).item(), 4),
+                    # round((attention_avg_text.topk(20).values.sum()/attention_avg_text.sum()).item(), 4),
+                    # round((attention_avg_text.topk(50).values.sum()/attention_avg_text.sum()).item(), 4),
+                    'inter_ratio', intersection_ratio(torch.arange(image_index, image_index+100, 1), top_rank_index[0:100].cpu()),
+                    'inter_ratio', intersection_ratio(torch.arange(start_index-100, start_index, 1), top_rank_index[0:100].cpu()),
                 )
                 top_rank_index= top_rank_index.sort().values  
 

@@ -7,7 +7,7 @@ import ast
 
 from transformers import StoppingCriteria
 from llava.constants import IMAGE_TOKEN_INDEX
-
+import torch.nn.functional as F
 
 def select_best_resolution(original_size, possible_resolutions):
     """
@@ -148,6 +148,30 @@ def process_anyres_image(image, processor, grid_pinpoints):
 def load_image_from_base64(image):
     return Image.open(BytesIO(base64.b64decode(image)))
 
+def expand2square_tensor(img_tensor, background_color=0):
+    """
+    img_tensor: shape (C, H, W), 取值范围0~1或0~255
+    background_color: int 或 float 或长度为C的list 填充色
+    """
+    c, h, w = img_tensor.shape
+    if h == w:
+        return img_tensor
+    size = max(h, w)
+    # 生成背景
+    if isinstance(background_color, (int, float)):
+        bg = torch.full((c, size, size), background_color, dtype=img_tensor.dtype, device=img_tensor.device)
+    else:
+        bg = torch.zeros((c, size, size), dtype=img_tensor.dtype, device=img_tensor.device)
+        for i in range(c):
+            bg[i] = background_color[i]
+    # 计算粘贴位置
+    if w > h:
+        top = (w - h) // 2
+        bg[:, top:top+h, :] = img_tensor
+    else:
+        left = (h - w) // 2
+        bg[:, :, left:left+w] = img_tensor
+    return bg
 
 def expand2square(pil_img, background_color):
     width, height = pil_img.size
@@ -162,14 +186,34 @@ def expand2square(pil_img, background_color):
         result.paste(pil_img, ((height - width) // 2, 0))
         return result
 
+def resize_tensor_image(img_tensor, size, mode='bilinear', align_corners=False):
+    """
+    用pytorch对image tensor进行resize
+    Args:
+        img_tensor: torch.Tensor, shape (C, H, W)
+        size: (new_H, new_W) 目标尺寸
+        mode: 插值方式，常用 'bilinear' 或 'nearest'
+        align_corners: 仅对双线性/三线性插值有效
+    Returns:
+        torch.Tensor, shape (C, new_H, new_W)
+    """
+    if img_tensor.dim() == 3:
+        img_tensor = img_tensor.unsqueeze(0)  # (1, C, H, W)
+    out = F.interpolate(img_tensor, size=size, mode=mode, align_corners=align_corners)
+    return out.squeeze(0)
 
 def process_images(images, image_processor, model_cfg):
+    
     image_aspect_ratio = getattr(model_cfg, "image_aspect_ratio", None)
     new_images = []
     if image_aspect_ratio == 'pad':
         for image in images:
-            image = expand2square(image, tuple(int(x*255) for x in image_processor.image_mean))
-            image = image_processor.preprocess(image, return_tensors='pt')['pixel_values'][0]
+            if isinstance(image, torch.Tensor):
+                image = expand2square_tensor(image, background_color=image_processor.image_mean[0])
+                image = resize_tensor_image(image, (image_processor.crop_size['height'], image_processor.crop_size['width']))
+            else:
+                image = expand2square(image, tuple(int(x*255) for x in image_processor.image_mean))
+                image = image_processor.preprocess(image, return_tensors='pt')['pixel_values'][0]
             new_images.append(image)
     elif image_aspect_ratio == "anyres":
         for image in images:

@@ -4,7 +4,8 @@ from transformers.models.llama.modeling_llama import apply_rotary_pos_emb
 import math
 from torch.optim.lr_scheduler import StepLR
 from llava.eval.utils import loss_norm, intersection_ratio, add_square_patch, get_patch_mask, save_clip_tensor_as_image
-
+import random
+import argparse
 
 def judge_adv(output_c:str, output_nc:str):
     output_c=output_c.lower()
@@ -225,20 +226,22 @@ def cat_adv_embed(benign_embed, adv_image_embed, adv_text_embed=None, start_idx=
     return adv_input_embeds
 
 
-def BPR_loss(y_tensor, p_list=None):#p1=None, p2=None, p3=None, p4=None, 
+def BPR_loss(y_tensor, p_list=None, clamp_min=-20, clamp_max=20, t=1):
     y_list=[]
     for idx in range(len(p_list)):
-        y_list.append(y_tensor[p_list[idx]])
-    
+        if torch.sum(p_list[idx])>0:
+            y_list.append(y_tensor[p_list[idx]])
+    if len(y_list)<=1:
+        return torch.tensor(1, device=y_tensor.device)
     loss_l=[]
-    for idx in range(1, len(p_list), 1):
+    for idx in range(1, len(y_list), 1):
         tmp_diff=y_list[idx-1][:, None] - y_list[idx][None, :]
-        tmp_diff = torch.clamp(tmp_diff, min=-20, max=20)
-        tmp_loss=-torch.mean(torch.log(torch.sigmoid(tmp_diff)))
+        tmp_diff = torch.clamp(tmp_diff, min=clamp_min, max=clamp_max)
+        tmp_loss=-torch.mean(torch.log(torch.sigmoid(tmp_diff/t)))
         if tmp_loss==torch.inf:
             tmp_loss=-torch.mean(-F.softplus(-tmp_diff)) 
         loss_l.append(tmp_loss.unsqueeze(0))
-    return torch.sum(torch.cat(loss_l))
+    return torch.mean(torch.cat(loss_l))
 
 def cos_loss(tensor_a, tensor_b):
     """
@@ -269,3 +272,40 @@ def weighted_sign_mse_loss(x, y, k=5):
     sign_diff = torch.tanh(x*k) - torch.tanh(y*k)
     loss = (diff ** 2) * (sign_diff ** 2)#
     return loss.mean()
+
+def mse_loss(x, y, k=1):
+    loss = (x - y) ** 2
+    return loss.mean()
+
+def get_args(ArgsDefault):
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--model_path', type=str, default=None)
+    parser.add_argument('--max_new_tokens', type=int, default=None)
+    parser.add_argument('--layer_list', type=str, default=None)
+    parser.add_argument('--image_token_ratio_list', type=str, default=None)
+    parser.add_argument('--target_layer_idx', type=int, default=None)
+    parser.add_argument('--adv_steps_list', type=str, default=None)
+    parser.add_argument('--adv_lr', type=float, default=None)
+    parser.add_argument('--n_patch_num', type=float, default=None)
+    parser.add_argument('--l_patch_num', type=float, default=None)
+    parser.add_argument('--epsilon_list', type=str, default=None)
+    parser.add_argument('--bpr_ths', type=float, default=None)
+    parser.add_argument('--cut_num', type=int, default=None)
+    parser.add_argument('--re_scale', type=str, default=None)
+    parser.add_argument('--atk', type=str, default=None)
+    parser.add_argument('--patch_or_noise', type=str, default=None)
+    parser.add_argument('--most_or_least', type=str, default=None)
+
+    args_cmd = parser.parse_args()
+    # 默认参数
+    args = ArgsDefault()
+    # 如果命令行有输入，则覆盖默认
+    for k in vars(args_cmd):
+        v = getattr(args_cmd, k)
+        if v is not None:
+            if v == "True":
+                v = True
+            elif v == "False":
+                v = False
+            setattr(args, k, v)
+    return args

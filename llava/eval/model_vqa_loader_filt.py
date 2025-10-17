@@ -15,8 +15,8 @@ from torch.utils.data import Dataset, DataLoader
 from PIL import Image
 import math
 import random
-from llava.eval.find_adv import opt_adv_pro, opt_adv_image_token, opt_adv_image_text_pro
-from llava.eval.find_adv_patch import opt_adv_image_patch
+# from llava.eval.find_adv import opt_adv_pro, opt_adv_image_token, opt_adv_image_text_pro
+# from llava.eval.find_adv_patch import opt_adv_image_patch
 from llava.eval.utils import Logger, save_jsonl
 from llava.eval.find_adv_util import judge_adv
 import numpy as np
@@ -50,9 +50,9 @@ def eval_model(args):
     questions = [json.loads(q) for q in open(os.path.expanduser(args.question_file), "r")]
     random.seed(124)
     random.shuffle(questions)
-    questions = questions[0:2000]
+    questions = questions[0:5000]
     # questions = questions[150:200]
-    questions = get_chunk(questions, args.num_chunks, args.chunk_idx)
+    # questions = get_chunk(questions, args.num_chunks, args.chunk_idx)
     # answers_file = os.path.expanduser(args.answers_file)
     # os.makedirs(os.path.dirname(answers_file), exist_ok=True)
     # ans_file = open(answers_file, "w")
@@ -70,6 +70,7 @@ def eval_model(args):
     new_dataset=[]
     # counter=Counter_acc(evaluator=)
     evaluator = TextVQAAccuracyEvaluator()
+    count_new=0
     for (input_ids, image_tensor, image_sizes, gt), line in tqdm(zip(data_loader, questions), total=len(questions)):
         if isinstance(gt, tuple):
             gt=gt[0]
@@ -121,13 +122,21 @@ def eval_model(args):
 
         
         if 'textvqa' in args.question_file:
-            if evaluator.eval_pred_per_sample(outputs_e, gt)==0:# and evaluator.eval_pred_per_sample(outputs_i, gt)>0:
+            if evaluator.eval_pred_per_sample(outputs_e, gt)==0 and evaluator.eval_pred_per_sample(outputs_i, gt)>0:
                 new_dataset.append(line)
+                count_new+=1
+                logger.print_log(idx, ':', cur_prompt.replace('\n', ' '))
+                logger.print_log(outputs_e, outputs_i, gt)
+                logger.print_log('count_new', count_new)
         else:
             if  judge_adv(outputs_e, outputs_i)==False:# and judge_adv(outputs_i, gt)==True:
                 new_dataset.append(line)
-    # save_jsonl(new_dataset, '../playground/data/eval/MME/llava_mme_filter_rule1.jsonl')
-    save_jsonl(new_dataset, '../playground/data/eval/pope/llava_pope_filter_rule1.jsonl')
+                count_new+=1
+                logger.print_log(idx, ':', cur_prompt.replace('\n', ' '))
+                logger.print_log(outputs_e, outputs_i, gt)
+                logger.print_log('count_new', count_new)
+    save_jsonl(new_dataset, '../playground/data/eval/textvqa/llava_vqa_filter_rule1.jsonl')
+    # save_jsonl(new_dataset, '../playground/data/eval/pope/llava_pope_filter_rule1.jsonl')
         
 
 if __name__ == "__main__":
