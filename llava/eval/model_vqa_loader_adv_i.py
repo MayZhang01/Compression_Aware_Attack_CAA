@@ -96,10 +96,10 @@ def eval_model(args, tokenizer, model, image_processor):
                 _,  
             ) = model.prepare_inputs_labels_for_multimodal_pdrop(       
                 input_ids, position_ids=None, attention_mask=None, past_key_values=None, labels=None,
-                images=torch.tensor([0]),#
-                # images=image_tensor.to(dtype=torch.float16, device='cuda', non_blocking=True), 
+                # images=torch.tensor([0]),#
+                images=image_tensor.to(dtype=torch.float16, device='cuda', non_blocking=True), 
                 image_sizes=image_sizes,
-                image_feature_size=(1,576,4096)
+                # image_feature_size=(1,576,4096)
             )
             ori_prompt_len=model.model.prompt_len[0]
         
@@ -173,21 +173,22 @@ def eval_model(args, tokenizer, model, image_processor):
             counter.get_metric(logger=logger)
         adv_data_dict[idx]={
             'text':cur_prompt,
-            'adv_image_tensor':adv_images,
-            'raw_image_tensor': image_tensor, 
+            'adv_image_tensor':adv_images.cpu(),
+            'raw_image_tensor': image_tensor.cpu(), 
             'image_sizes': image_sizes, 
+            'adv_input_embeds': adv_input_embeds.cpu(),
             'gt': gt,
             'rlt':rlt,
             # 'input_ids': input_ids, 
             # 'attention_mask': attention_mask,
             # 'new_input_embeds': new_input_embeds,
             # 'ori_prompt_len':ori_prompt_len,
-            # 'adv_input_embeds': adv_input_embeds,
             # 'adv_num': adv_num,
             # 'patch_inter_ratio': patch_inter_ratio, 
             # 'least_inter_ratio': least_inter_ratio,
             # 'position_ids': position_ids,
         }
+        del adv_images, adv_input_embeds, image_tensor
         torch.cuda.empty_cache()
     counter.get_metric(logger=logger)
     data_path='saved_data/'+'_'.join([
