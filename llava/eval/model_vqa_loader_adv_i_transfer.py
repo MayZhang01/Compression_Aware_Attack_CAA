@@ -44,38 +44,32 @@ def process_input(text, image_tensor, tokenizer, image_processor, model_config, 
 
 def eval_model(args, tokenizer, model, image_processor):
     logger=Logger()
-    # logger.print_log(args)
-    for key, value in args.__class__.__dict__.items():
+    logger.print_log('from transfer')
+    for key, value in args.__dict__.items():
         if not key.startswith('__'):
-            logger.print_log(f"{key}: {value}")
+            if key=='epsilon':
+                logger.print_log('epsilon:', int(args.epsilon*255))
+            else:
+                logger.print_log(f"{key}: {value}")
 
     # Model
     disable_torch_init()
-    # model_path = os.path.expanduser(args.model_path)
-    # model_name = get_model_name_from_path(model_path)
-    # dataset_name=extract_name_from_path(args.question_file)
     if args.layer_list is not None:
         pdrop_infer = True  # whether to use pdrop infer
-    # tokenizer, model, image_processor, context_len = load_pretrained_model(
-    #     model_path, 
-    #     args.model_base, 
-    #     model_name,
-    #     pdrop_infer
-    # )
+    
     model.model.logger=logger
     conv_mode = conv_templates[args.conv_mode].copy()
 
     model_class_name = type(model).__name__
 
     random.seed(124)
-    rlt_path='/home/zxm/python/qwen2vl_compress/' \
-    'saved_data/Qwen2.5-VL-3B-Instruct_pope_filter_rule1_llava_qwen25_3b_adv_image_0.2_0.2_128_100_1.0_2_False_True_1_trf_False_311.pt'
+    rlt_path=args.rlt_path
     logger.print_log(rlt_path)
     dataset = torch.load(rlt_path)
     
     layer_list=eval(args.layer_list)
     cp_list=[1, 0.5, 0.2, 0.15, 0.1]#, 0.5, 0.3
-    if 'textvqa' in args.question_file:
+    if 'vqa' in rlt_path:
         evaluator = TextVQAAccuracyEvaluator()
         counter=Counter_acc(cp_list, evaluator=evaluator)
     else:
@@ -87,7 +81,7 @@ def eval_model(args, tokenizer, model, image_processor):
         if isinstance(gt, tuple):
             gt=gt[0]
         text = dataset[idx]['text']
-        image_tensor = dataset[idx]['adv_image_tensor']
+        image_tensor = dataset[idx]['raw_image_tensor']
         
         input_ids, image_tensor, image_sizes=process_input(text, image_tensor, tokenizer, image_processor, model.config, conv_mode)
         save_clip_tensor_as_image(image_tensor.cpu(),'1.png')
@@ -137,10 +131,18 @@ def eval_model(args, tokenizer, model, image_processor):
         else:
             counter.add_rlt(gt=gt, rlt=rlt)
         rlt['gt']=gt
-        logger.print_log(rlt)
+        logger.print_log(idx, ':', text)
+        logger.print_log(counter.total,':', rlt)
         if counter.total%20==0 and counter.total>0:
             counter.get_metric(logger=logger)
     counter.get_metric(logger=logger)
+    for key, value in args.__dict__.items():
+        if not key.startswith('__'):
+            if key=='epsilon':
+                logger.print_log('epsilon:', int(args.epsilon*255))
+            else:
+                logger.print_log(f"{key}: {value}")
+    del logger
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

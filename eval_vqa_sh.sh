@@ -13,3 +13,20 @@ python llava_eval_vqa.py \
 --atk "ca" \
 --patch_or_noise "False" \
 --most_or_least "True"
+
+python llava_eval_vqa.py \
+--model_path "../../model_weight/llava-v1.5-7b" \
+--layer_list "[2]" \
+--target_layer_idx 2 \
+--adv_steps_list "[0]" \
+--adv_lr 1 \
+--n_patch_num 0.1 \
+--l_patch_num 0.3 \
+--epsilon_list "[0/255]" \
+--bpr_ths 0.1 \
+--cut_num 1 \
+--re_scale "False" \
+--atk "ca" \
+--patch_or_noise "False" \
+--most_or_least "True" \
+--rlt_path "../qwen2vl_compress/saved_data/Qwen2.5-VL-3B-Instruct_qwen25_3b_llava_vqa_filter_rule1_adv_image_0.2_0.3_32_200_1.0_2_False_True_1_trf_False_311.pt"

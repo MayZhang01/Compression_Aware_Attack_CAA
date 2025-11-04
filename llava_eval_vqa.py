@@ -4,7 +4,7 @@ os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 from llava.model.builder import load_pretrained_model
 from llava.mm_utils import get_model_name_from_path
 from llava.eval.model_vqa_loader_adv_i import eval_model
-# from llava.eval.model_vqa_loader_adv_i_transfer import eval_model
+from llava.eval.model_vqa_loader_adv_i_transfer import eval_model as eval_model_trf
 # import torch
 from llava.eval.find_adv_util import get_args
 
@@ -33,6 +33,7 @@ ArgsDefault = type('Args', (), {
     "image_token_ratio_list":"[1, 0.5, 0.2, 0.15, 0.1]",
     "adv_steps_list":"[100]",
     "adv_lr":1,
+    "cut_num":1,
     "n_patch_num":0.1,
     "l_patch_num":0.3,
     "epsilon_list":"[64/255]",
@@ -42,6 +43,7 @@ ArgsDefault = type('Args', (), {
     "atk":'ca',
     "patch_or_noise":False,
     "most_or_least":True,
+    "rlt_path":'',
 })
 
 args = get_args(ArgsDefault)
@@ -62,4 +64,7 @@ for adv_steps in adv_steps_list:
         args.adv_steps=adv_steps
         args.epsilon=epsilon
         print(f"adv_steps: {adv_steps}, epsilon: {epsilon}")
-        eval_model(args, tokenizer, model, image_processor)
+        if len(args.rlt_path) > 0:
+            eval_model_trf(args, tokenizer, model, image_processor)
+        else:
+            eval_model(args, tokenizer, model, image_processor)

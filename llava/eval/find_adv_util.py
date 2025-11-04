@@ -295,6 +295,7 @@ def get_args(ArgsDefault):
     parser.add_argument('--atk', type=str, default=None)
     parser.add_argument('--patch_or_noise', type=str, default=None)
     parser.add_argument('--most_or_least', type=str, default=None)
+    parser.add_argument('--rlt_path', type=str, default='')
 
     args_cmd = parser.parse_args()
     # 默认参数
