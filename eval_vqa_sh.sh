@@ -29,4 +29,4 @@ python llava_eval_vqa.py \
 --atk "ca" \
 --patch_or_noise "False" \
 --most_or_least "True" \
---rlt_path "../qwen2vl_compress/saved_data/Qwen2.5-VL-3B-Instruct_qwen25_3b_llava_vqa_filter_rule1_adv_image_0.2_0.3_32_200_1.0_2_False_True_1_trf_False_311.pt"
+--rlt_path "../qwen2vl_compress/saved_data/Qwen2.5-VL-3B-Instruct_qwen25_3b_llava_vqa_filter_rule1_adv_image_0.15_0.15_32_100_1.0_2_False_True_1_trf_False_61.pt"

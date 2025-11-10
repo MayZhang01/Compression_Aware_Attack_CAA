@@ -81,7 +81,7 @@ def eval_model(args, tokenizer, model, image_processor):
         if isinstance(gt, tuple):
             gt=gt[0]
         text = dataset[idx]['text']
-        image_tensor = dataset[idx]['raw_image_tensor']
+        image_tensor = dataset[idx]['adv_image_tensor']
         
         input_ids, image_tensor, image_sizes=process_input(text, image_tensor, tokenizer, image_processor, model.config, conv_mode)
         save_clip_tensor_as_image(image_tensor.cpu(),'1.png')
