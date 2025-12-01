@@ -15,10 +15,11 @@ from llava.eval.find_adv_util import get_args
 # model_path = "../../model_weight/llava-v1.6-mistral-7b"#llava-v1.5-7b
 
 ArgsDefault = type('Args', (), {
-    "model_path": "../../model_weight/llava-v1.6-vicuna-7b",
+    "model_path": "../../model_weight/llava-v1.5-7b",
     "model_base": None,
     "image_folder": '../playground/data/eval/pope/val2014',
-    "question_file": '../playground/data/eval/pope/pope_filter_rule1_llava_qwen25_3b.jsonl',
+    # "question_file": '../playground/data/eval/pope/pope_filter_rule1_llava_qwen25_3b.jsonl',
+    "question_file": '../playground/data/eval/pope/qwen25_3b_7b_llava_pope_filter_rule1.jsonl',
     "answers_file": '../playground/data/eval/pope/answers/llava-v1.5-13b.jsonl',
     "temperature": 0,
     "conv_mode": "llava_v1",
@@ -26,15 +27,15 @@ ArgsDefault = type('Args', (), {
     "chunk_idx":0,
     # "top_p":None,
     "num_beams":1,
-    "max_new_tokens":5,
+    "max_new_tokens":3,
     "layer_list":'[2]',
     "target_layer_idx":2, 
-    "image_token_ratio_list":"[1, 0.5, 0.2, 0.15, 0.1]",
-    "adv_steps_list":"[10]",
+    "image_token_ratio_list":"[1.0, 0.7, 0.5, 0.3, 0.2]",
+    "adv_steps_list":"[0]",
     "adv_lr":1,
     "cut_num":1,
-    "n_patch_num":0.1,
-    "l_patch_num":0.3,
+    "n_patch_num":0.2,
+    "l_patch_num":0.4,
     "epsilon_list":"[64/255]",
     "bpr_ths":0.1,
     "image_size":336,
@@ -43,6 +44,11 @@ ArgsDefault = type('Args', (), {
     "patch_or_noise":False,
     "most_or_least":True,
     "rlt_path":'',
+    "re_scale":False,
+    "most_flag":False,
+    "w_bpr_l":20, "w_bpr_p":20, "w_dir_l":10, "w_dir_p":5, "w_bpr_lp":5,
+    "w_ori_l":10, "w_ori_p":10,
+    "stop_teps":40, "stop_ratio":0.8,
 })
 
 args = get_args(ArgsDefault)

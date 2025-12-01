@@ -10,22 +10,26 @@ from llava.eval.find_adv_util import get_patch_mask
 
 
 def opt_adv_image_patch(
-        model, input_embeds,  attention_mask,
-        image_shape,        
-        pre_prompt_length_list, 
-        images=None,  
-        target_layer_idx=1, 
-        adv_steps=20, 
-        adv_lr=1e-1,
-        epsilon=8/255,
-        n_patch_num=50,
-        l_patch_num=0,
-        bpr_ths=0.1,
-        image_size=336,
-        patch_size=14,
-        logger=None,
-        patch_or_noise=False,
-    ):
+    model, input_embeds,  attention_mask,
+    image_shape,        
+    pre_prompt_length_list, 
+    images=None,  
+    target_layer_idx=1, 
+    adv_steps=20, 
+    adv_lr=1e-1,
+    epsilon=8/255,
+    n_patch_num=50,
+    l_patch_num=0,
+    bpr_ths=0.1,
+    image_size=336,
+    patch_size=14,
+    logger=None,
+    patch_or_noise=False,
+    most_flag=False,
+    w_bpr_l=20, w_bpr_p=20, w_dir_l=10, w_dir_p=10, w_bpr_lp=10,
+    w_ori_l=-2, w_ori_p=-2,
+    stop_teps=80, stop_ratio=0.8,
+):
 
     device = input_embeds.device
     dtype=input_embeds.dtype
@@ -38,29 +42,37 @@ def opt_adv_image_patch(
     least_num=v_token_num-most_num-second_num
     n_patch_num=int(n_patch_num*v_token_num)
     l_patch_num=int(l_patch_num*v_token_num)
-
-    
-    image_max=images.max()
     save_clip_tensor_as_image(images.cpu(),'1.png')
+    image_max=images.max()
+
+    fixed_input_embeds = input_embeds.detach().clone()
+    opt_params=[]
     
     adv_perturbs = torch.randn_like(images, dtype=dtype, device=device)
     adv_perturbs = adv_perturbs*images.std()
     adv_perturbs = torch.clamp(adv_perturbs, -epsilon*image_max, epsilon*image_max)
-    
-    torch.manual_seed(123)                   
-    torch.cuda.manual_seed(123)
-    fixed_input_embeds = input_embeds.detach()
+    opt_params.append(adv_perturbs)
 
     adv_patch = torch.randn_like(images, dtype=dtype, device=device)
     adv_patch = adv_patch*images.std()
     if patch_or_noise==False:
         adv_patch = torch.clamp(adv_patch, -epsilon*image_max, epsilon*image_max)
+    opt_params.append(adv_patch)
+
+    torch.manual_seed(123)                   
+    torch.cuda.manual_seed(123)
+    
+    if most_flag:
+        adv_mosts = torch.randn_like(images, dtype=dtype, device=device)
+        adv_mosts = adv_mosts*images.std()
+        adv_mosts = torch.clamp(adv_mosts, -epsilon*image_max, epsilon*image_max)
+        opt_params.append(adv_mosts)
     
     patch_inter_ratio, least_inter_ratio=0,0
     if adv_steps>0: 
         adv_perturbs.requires_grad_(True)
         adv_patch.requires_grad_(True)
-        optimizer = torch.optim.SGD([adv_perturbs, adv_patch], lr=adv_lr)
+        optimizer = torch.optim.SGD(opt_params, lr=adv_lr)
         scheduler = StepLR(optimizer, step_size=20, gamma=0.5)
     
     with torch.no_grad():   
@@ -79,7 +91,7 @@ def opt_adv_image_patch(
             v_token_start=v_token_start,
             v_token_num=v_token_num,
         )
-        # ben_attn_logits_mean=get_attn_mean(ben_attn_map_list_nc[target_layer_idx].mean(1))
+        
         ben_attn_v_tar_mean =ben_attn_score_list_nc[target_layer_idx].mean(1)[0, input_num-1 ,v_token_start:t_token_start]
         _, topk_v_tar  = torch.topk(ben_attn_v_tar_mean, k=v_token_num)
         topk_v_tar  = topk_v_tar+v_token_start
@@ -94,7 +106,6 @@ def opt_adv_image_patch(
         most_mask[topk_v_tar[:most_num]] = True
         second_mask[topk_v_tar[most_num:most_num+second_num]] = True
         least_mask[topk_v_tar[most_num+second_num:]] = True
-        
 
         if l_patch_num>0:
             least_patch_mask[topk_v_tar[-l_patch_num:-n_patch_num]] = True
@@ -123,14 +134,15 @@ def opt_adv_image_patch(
             pixel_patch_mask= pixel_patch_mask.to(device)
         else:
             pixel_patch_mask=torch.zeros((image_size, image_size), device=device, dtype=dtype)
-        
-        
-        # sys_mask   = torch.zeros_like(all_indices, dtype=torch.bool)
-        # image_mask   = torch.zeros_like(all_indices, dtype=torch.bool)
-        # text_mask   = torch.zeros_like(all_indices, dtype=torch.bool)
-        # sys_mask[0:v_token_start]=True
-        # image_mask[v_token_start:t_token_start]=True
-        # text_mask[t_token_start:]=True
+
+        if most_flag:
+            pixel_most_idx = topk_v_tar[:-l_patch_num]-v_token_start
+            pixel_most_mask=get_patch_mask(
+                pixel_most_idx, 
+                image_size=image_size, 
+                patch_size=patch_size
+            )
+            pixel_most_mask = pixel_most_mask.to(device)
 
         
         # Get first transformer block
@@ -162,7 +174,8 @@ def opt_adv_image_patch(
         v_dir = torch.matmul(W_K.T, q0)
         v = v_dir / (v_dir.norm() + 1e-12)       # 方向对齐；若想更大logit，可再乘一个标量α（非Pre-Norm时）
         maxQ_patch=v.unsqueeze(0).repeat(n_patch_num, 1)
-        maxQ_least=v.unsqueeze(0).repeat(l_patch_num-n_patch_num, 1)
+        if l_patch_num>0:
+            maxQ_least=v.unsqueeze(0).repeat(l_patch_num-n_patch_num, 1)
         # maxQ_least=v.unsqueeze(0).repeat(l_patch_num, 1)
         # noise_patch=torch.randn_like(ben_input_embeds[:,noise_patch_mask], dtype=dtype, device=device)
         # noise_least=torch.randn_like(ben_input_embeds[:,least_patch_mask], dtype=dtype, device=device)
@@ -175,6 +188,9 @@ def opt_adv_image_patch(
         update_flag=True
     last_adv_perturbs=torch.zeros_like(adv_perturbs)
     last_adv_patch=torch.zeros_like(adv_patch)
+    if most_flag:
+        last_adv_mosts=torch.zeros_like(adv_mosts)
+    
     for step in range(adv_steps):
         adv_images=images.clone()
         if patch_or_noise:
@@ -182,6 +198,8 @@ def opt_adv_image_patch(
         else:
             adv_images=adv_images+adv_patch*pixel_patch_mask
         adv_images=adv_images+adv_perturbs*pixel_least_mask
+        if most_flag:
+            adv_images=adv_images+adv_mosts*pixel_most_mask
         # adv_images = torch.clamp(adv_images, -image_max*1.1, image_max*1.1)
         save_clip_tensor_as_image(adv_images.cpu(),'2.png')
         adv_image_embeds = model.encode_images(adv_images)
@@ -199,9 +217,7 @@ def opt_adv_image_patch(
         attn_logits_nc = attn_logits_list_nc[target_layer_idx]
         attn_logits_nc_mean = attn_logits_nc.mean(1)
         attn_logits_nc_last = attn_logits_nc_mean[:,input_num-1,:]
-        # attn_logits_nc_mean = get_attn_mean(
-        #     attn_logits_nc_mean
-        # )
+
         attn_scores_nc = attn_scores_list_nc[target_layer_idx]
         attn_scores_nc_mean = attn_scores_nc.mean(1)
         attn_scores_nc_last = attn_scores_nc_mean[:,input_num-1,:]
@@ -215,19 +231,25 @@ def opt_adv_image_patch(
                     most_mask,
                 ] 
             )
-            loss_list.append(torch.relu(loss_bpr_l-bpr_ths)*20)
+            loss_list.append(torch.relu(loss_bpr_l-bpr_ths)*w_bpr_l)
             loss_dict['bpr_l']=round(loss_bpr_l.item(),2)
-            # loss_dir_l=torch.norm(torch.sign(noise_least)-adv_input_embeds[:,least_patch_mask])
-            # loss_dir_l=torch.norm(torch.sign(noise_least)-hidden_states_list_nc[target_layer_idx][:,least_patch_mask])
-            # loss_list.append((loss_dir_l-400))
-            # loss_dir_l=F.mse_loss(hidden_states_list_nc[target_layer_idx][:,least_patch_mask], torch.sign(noise_least))
-            loss_dir_l=mse_loss(#weighted_sign_
+            
+            loss_dir_l=mse_loss(
                 hidden_states_list_nc[target_layer_idx][:,least_patch_mask], 
                 maxQ_least, 
                 k=1
             )
-            loss_list.append((loss_dir_l)*10)
+            loss_list.append((loss_dir_l)*w_dir_l)
             loss_dict['dir_l']=round(loss_dir_l.item(),2)
+            
+            loss_ori_l=mse_loss(
+                hidden_states_list_nc[target_layer_idx][:,least_patch_mask], 
+                ben_hidden_states_list_nc[target_layer_idx][:,least_patch_mask], 
+                k=1
+            )
+            loss_list.append(torch.relu(2-loss_ori_l)*w_ori_l)
+            loss_dict['ori_l']=round(loss_ori_l.item(),2)
+
         if n_patch_num>0:
             loss_bpr_p=BPR_loss(
                 attn_logits_nc_last[0], 
@@ -236,25 +258,25 @@ def opt_adv_image_patch(
                     most_mask,
                 ] 
             )
-            loss_list.append(torch.relu(loss_bpr_p-bpr_ths)*20)
+            loss_list.append(torch.relu(loss_bpr_p-bpr_ths)*w_bpr_p)
             loss_dict['bpr_p']=round(loss_bpr_p.item(),2)
-            # loss_dir_p=torch.norm(torch.sign(noise_patch)-adv_input_embeds[:,noise_patch_mask])
-            # loss_dir_p=torch.norm(torch.sign(noise_patch)-hidden_states_list_nc[target_layer_idx][:,noise_patch_mask])
-            # loss_list.append((loss_dir_p-400))
-            loss_dir_p=mse_loss(#weighted_sign_
+            
+            loss_dir_p=mse_loss(
                 hidden_states_list_nc[target_layer_idx][:,noise_patch_mask], 
                 maxQ_patch, 
                 k=1
             )
-            loss_list.append((loss_dir_p)*10)
+            loss_list.append((loss_dir_p)*w_dir_p)
             loss_dict['dir_p']=round(loss_dir_p.item(),2)
-            # loss_dir_p2=F.mse_loss(
-            #     hidden_states_list_nc[target_layer_idx][:,noise_patch_mask], 
-            #     # ben_hidden_states_list_nc[target_layer_idx][:,noise_patch_mask]+5*torch.sign(noise_patch),
-            #     maxQ_patch,
-            #     # dim=-1
-            # )
-            # loss_list_o.append(loss_dir_p2)
+            
+            loss_ori_p=mse_loss(
+                hidden_states_list_nc[target_layer_idx][:,noise_patch_mask], 
+                ben_hidden_states_list_nc[target_layer_idx][:,noise_patch_mask], 
+                k=1
+            )
+            loss_list.append(torch.relu(2-loss_ori_p)*w_ori_p)
+            loss_dict['ori_p']=round(loss_ori_p.item(),2)
+            
         if l_patch_num>0 and n_patch_num>0:
             loss_bpr_lp=BPR_loss(
                 attn_logits_nc_last[0], 
@@ -263,8 +285,9 @@ def opt_adv_image_patch(
                     least_patch_mask,
                 ] 
             )
-            loss_list.append(torch.relu(loss_bpr_lp-bpr_ths)*10)
+            loss_list.append(torch.relu(loss_bpr_lp-bpr_ths)*w_bpr_lp)
             loss_dict['bpr_lp']=round(loss_bpr_lp.item(),2)
+        
         loss_bpr=BPR_loss(
             attn_logits_nc_last[0], 
             p_list=[
@@ -273,7 +296,7 @@ def opt_adv_image_patch(
                 least_mask, 
             ] 
         )
-        # loss_list.append(torch.relu(loss_bpr-bpr_ths)*1)
+        # loss_list.append(torch.relu(loss_bpr-bpr_ths)*20)
         loss_dict['bpr_w']=round(loss_bpr.item(),2)
         
         loss = torch.stack(loss_list).sum()
@@ -282,10 +305,14 @@ def opt_adv_image_patch(
             logger.print_log('Loss is NaN, stop optimization.')
             adv_perturbs=last_adv_perturbs
             adv_patch=last_adv_patch
+            if most_flag:
+                adv_mosts=last_adv_mosts
             break
         
         last_adv_perturbs=adv_perturbs.detach().clone()
         last_adv_patch=adv_patch.detach().clone()
+        if most_flag:
+            last_adv_mosts=adv_mosts.detach().clone()
 
         if update_flag:
             optimizer.zero_grad()
@@ -295,6 +322,8 @@ def opt_adv_image_patch(
             adv_perturbs.data=torch.clamp(adv_perturbs.data, -epsilon*image_max, epsilon*image_max)
             if patch_or_noise==False:
                 adv_patch.data=torch.clamp(adv_patch.data, -epsilon*image_max, epsilon*image_max)
+            if most_flag:
+                adv_mosts.data=torch.clamp(adv_mosts.data, -epsilon*image_max, epsilon*image_max)
         
         attn_sum = attn_scores_nc_last.sum()
         
@@ -323,12 +352,8 @@ def opt_adv_image_patch(
         _, topk_image  = torch.topk(attn_scores_nc_last[:, v_token_start:t_token_start], k=v_token_num)
         topk_image=topk_image+v_token_start
 
-        patch_inter_ratio=intersection_ratio(topk_image[0,:n_patch_num], topk_v_tar[-n_patch_num:])#all_indices[t_token_start-n_patch_num:t_token_start]
-        # patch_inter_ratio=intersection_ratio(topk_image[0,:n_patch_num], all_indices[t_token_start-n_patch_num:t_token_start])
+        patch_inter_ratio=intersection_ratio(topk_image[0,:n_patch_num], topk_v_tar[-n_patch_num:])
         least_inter_ratio=intersection_ratio(topk_image[0,:l_patch_num], topk_v_tar[-l_patch_num:])
-
-        # if patch_inter_ratio<0.2:
-        #     print()
 
         logger.print_log(
             step, 
@@ -342,7 +367,11 @@ def opt_adv_image_patch(
             'least: ', round(tar_least_ratio,3), 
         )
 
-        if patch_inter_ratio >= 0.8 and least_inter_ratio >= 0.8:# and step>50:
+        if n_patch_num==0:
+            patch_inter_ratio=stop_ratio+0.1
+        if l_patch_num==0:
+            least_inter_ratio=stop_ratio+0.1
+        if patch_inter_ratio >= stop_ratio and least_inter_ratio >= stop_ratio and step>stop_teps:
             logger.print_log('Patch intersection ratio satisfied, stop optimization.')
             break
         
@@ -359,6 +388,8 @@ def opt_adv_image_patch(
         else:
             adv_images=adv_images+adv_patch*pixel_patch_mask
         adv_images=adv_images+adv_perturbs*pixel_least_mask
+        if most_flag:
+            adv_images=adv_images+adv_mosts*pixel_most_mask
         # adv_images = torch.clamp(adv_images, -image_max*1.1, image_max*1.1)
         adv_image_embeds = model.encode_images(adv_images)
         adv_input_embeds=cat_adv_embed(

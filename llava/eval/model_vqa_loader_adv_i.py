@@ -17,7 +17,7 @@ import math
 import random
 from llava.eval.find_adv import opt_adv_pro, opt_adv_image_token, opt_adv_image_text_pro
 from llava.eval.find_adv_patch import opt_adv_image_patch
-from llava.eval.utils import Logger, extract_name_from_path
+from llava.eval.utils import Logger, extract_name_from_path, print_args
 from llava.eval.find_adv_util import judge_adv
 import numpy as np
 from llava.eval.m4c_evaluator import TextVQAAccuracyEvaluator
@@ -35,14 +35,9 @@ def eval_model(args, tokenizer, model, image_processor):
     most_or_least=getattr(args, 'most_or_least', True)
     patch_or_noise=getattr(args, 'patch_or_noise', True)
     dir_name=dataset_name
+
     logger=Logger(dir_name=dir_name)
-    # logger.print_log(args)
-    for key, value in args.__dict__.items():
-        if not key.startswith('__'):
-            if key=='epsilon':
-                logger.print_log('epsilon:', int(args.epsilon*255))
-            else:
-                logger.print_log(f"{key}: {value}")
+    print_args(args, logger)
     logger.print_log('model_name:', model_name)
     logger.print_log('dataset_name:', dataset_name)
     
@@ -51,24 +46,29 @@ def eval_model(args, tokenizer, model, image_processor):
     model_class_name = type(model).__name__
 
     questions = [json.loads(q) for q in open(os.path.expanduser(args.question_file), "r")]
-    random.seed(124)
+    random.seed(160)
     random.shuffle(questions)
     q_start=0
     questions = questions[q_start:311]
-    # questions = questions[150:200]
-    # questions = get_chunk(questions, args.num_chunks, args.chunk_idx)
-    # answers_file = os.path.expanduser(args.answers_file)
-    # os.makedirs(os.path.dirname(answers_file), exist_ok=True)
-    # ans_file = open(answers_file, "w")
+    data_loader = create_data_loader(questions, args.image_folder, tokenizer, image_processor, model.config, conv_mode=args.conv_mode)
+    
+    try:
+        w_bpr_l, w_bpr_p, w_dir_l, w_dir_p, w_bpr_lp = args.w_bpr_l, args.w_bpr_p, args.w_dir_l, args.w_dir_p, args.w_bpr_lp
+        w_ori_l, w_ori_p = args.w_ori_l, args.w_ori_p
+        most_flag=args.most_flag
+        stop_teps=args.stop_teps
+        stop_ratio=args.stop_ratio
+    except:
+        w_bpr_l, w_bpr_p, w_dir_l, w_dir_p, w_bpr_lp = 20, 20, 10, 10, 10
+        w_ori_l, w_ori_p = -2, -2
+        most_flag=False if args.atk=='ca' else True
+        stop_teps, stop_ratio=80, 0.8
 
     if 'plain' in model_name and 'finetune' not in model_name.lower() and 'mmtag' not in args.conv_mode:
         args.conv_mode = args.conv_mode + '_mmtag'
         print(f'It seems that this is a plain model, but it is not using a mmtag prompt, auto switching to {args.conv_mode}.')
 
-    data_loader = create_data_loader(questions, args.image_folder, tokenizer, image_processor, model.config, conv_mode=args.conv_mode)
-    count, count2=0, 0
-    total=0
-    succ_list=[]
+    
     layer_list=eval(args.layer_list)
     cp_list=eval(args.image_token_ratio_list)
     if 'textvqa' in args.question_file:
@@ -81,8 +81,7 @@ def eval_model(args, tokenizer, model, image_processor):
     for (input_ids, image_tensor, image_sizes, gt), line in tqdm(zip(data_loader, questions), total=len(questions)):
         if isinstance(gt, tuple):
             gt=gt[0]
-        # if gd=='No':
-        #     continue
+        
         idx = line["question_id"]
         cur_prompt = line["text"]
         input_ids = input_ids.to(device='cuda', non_blocking=True)
@@ -119,76 +118,60 @@ def eval_model(args, tokenizer, model, image_processor):
             image_size=args.image_size,
             patch_size=args.patch_size,
             logger=logger,
+            most_flag=most_flag,
+            w_bpr_l=w_bpr_l, w_bpr_p=w_bpr_p, w_dir_l=w_dir_l, w_dir_p=w_dir_p, w_bpr_lp=w_bpr_lp,
+            w_ori_l=w_ori_l, w_ori_p=w_ori_p,
+            stop_teps=stop_teps, stop_ratio=stop_ratio,
         )
 
         rlt={'patch_inter_ratio':patch_inter_ratio, 'least_inter_ratio':least_inter_ratio}
-        for cp in cp_list:
-            with torch.inference_mode():
-                if model_class_name == "LlavaLlamaForCausalLM_PDrop":
-                    model.model.layer_list = layer_list
-                    model.model.image_token_ratio_list = [cp]
-                    model.model.image_token_ratio_list.insert(0, 1.0)
-                model.model.prompt_len[0]=ori_prompt_len+adv_num
-                adv_output_ids = model.generate(
-                    inputs_embeds=adv_input_embeds,
-                    image_sizes=image_sizes,
-                    do_sample=True if args.temperature > 0 else False,
-                    # temperature=args.temperature,
-                    # top_p=args.top_p,
-                    num_beams=args.num_beams,
-                    max_new_tokens=args.max_new_tokens,
-                    use_cache=True
-                )
-            adv_outputs = tokenizer.batch_decode(adv_output_ids, skip_special_tokens=True)[0].strip()
-            rlt[str(cp)]=adv_outputs
-
-        # with torch.inference_mode():
-        #     if model_class_name == "LlavaLlamaForCausalLM_PDrop":
-        #         model.model.layer_list = []
-        #         model.model.image_token_ratio_list = []
-        #     model.model.prompt_len[0]=ori_prompt_len
-        #     output_ids = model.generate(
-        #         input_ids,
-        #         images=image_tensor.to(dtype=torch.float16, device='cuda', non_blocking=True),
-        #         # inputs_embeds=new_input_embeds,
-        #         image_sizes=image_sizes,
-        #         do_sample=True if args.temperature > 0 else False,
-        #         # temperature=args.temperature,
-        #         # top_p=args.top_p,
-        #         num_beams=args.num_beams,
-        #         max_new_tokens=args.max_new_tokens,
-        #         use_cache=True
-        #     )
-        # outputs = tokenizer.batch_decode(output_ids, skip_special_tokens=True)[0].strip()
-        # rlt['ori']=outputs
+        try:
+            for cp in cp_list:
+                with torch.inference_mode():
+                    if model_class_name == "LlavaLlamaForCausalLM_PDrop":
+                        model.model.layer_list = layer_list
+                        model.model.image_token_ratio_list = [cp]
+                        model.model.image_token_ratio_list.insert(0, 1.0)
+                    model.model.prompt_len[0]=ori_prompt_len+adv_num
+                    adv_output_ids = model.generate(
+                        inputs_embeds=adv_input_embeds,
+                        image_sizes=image_sizes,
+                        do_sample=True if args.temperature > 0 else False,
+                        # temperature=args.temperature,
+                        # top_p=args.top_p,
+                        num_beams=args.num_beams,
+                        max_new_tokens=args.max_new_tokens,
+                        use_cache=True
+                    )
+                adv_outputs = tokenizer.batch_decode(adv_output_ids, skip_special_tokens=True)[0].strip()
+                rlt[str(cp)]=adv_outputs
+        except Exception as e:
+            logger.print_log(f"Error during generation for idx {idx}: {e}")
+            torch.cuda.empty_cache()
+            continue
 
         if 'textvqa' in args.question_file:
             rlt=counter.add_rlt(gt=gt, rlt=rlt)
         else:
             counter.add_rlt(gt=gt, rlt=rlt)
         rlt['gt']=gt
+        
         logger.print_log(idx, ':', cur_prompt.replace('\n', ' '))
         logger.print_log(counter.total+q_start, ':', rlt)
         if counter.total%20==0 and counter.total>0:
             counter.get_metric(logger=logger)
         adv_data_dict[idx]={
             'text':cur_prompt,
-            'adv_image_tensor':adv_images.cpu(),
-            'raw_image_tensor': image_tensor.cpu(), 
+            # 'adv_image_tensor':adv_images.detach().cpu(),
+            # 'raw_image_tensor': image_tensor.detach().cpu(), 
             'image_sizes': image_sizes, 
-            'adv_input_embeds': adv_input_embeds.cpu(),
             'gt': gt,
             'rlt':rlt,
-            # 'input_ids': input_ids, 
-            # 'attention_mask': attention_mask,
-            # 'new_input_embeds': new_input_embeds,
-            # 'ori_prompt_len':ori_prompt_len,
-            # 'adv_num': adv_num,
-            # 'patch_inter_ratio': patch_inter_ratio, 
-            # 'least_inter_ratio': least_inter_ratio,
-            # 'position_ids': position_ids,
+            'input_ids': input_ids.detach().cpu(),
+            'adv_input_embeds': adv_input_embeds.detach().cpu(),
+            'raw_input_embeds': new_input_embeds.detach().cpu(),
         }
-        del adv_images, adv_input_embeds, image_tensor
+        del adv_images, adv_input_embeds, image_tensor, new_input_embeds, input_ids
         torch.cuda.empty_cache()
     counter.get_metric(logger=logger)
     data_path='saved_data/'+'_'.join([
@@ -207,16 +190,17 @@ def eval_model(args, tokenizer, model, image_processor):
         str(args.atk),
         str(args.re_scale),
         str(len(questions)),
+        str(most_flag),
+        str(w_bpr_l), str(w_bpr_p),
+        str(w_dir_l), str(w_dir_p),
+        str(w_bpr_lp),
+        str(w_ori_l), str(w_ori_p),
+        str(stop_teps), str(stop_ratio),
     ])+'.pt'
     torch.save(adv_data_dict, data_path)
     logger.print_log('saved_data_path:', data_path)
     
-    for key, value in args.__dict__.items():
-        if not key.startswith('__'):
-            if key=='epsilon':
-                logger.print_log('epsilon:', int(args.epsilon*255))
-            else:
-                logger.print_log(f"{key}: {value}")
+    print_args(args, logger)
     del logger
 
 if __name__ == "__main__":

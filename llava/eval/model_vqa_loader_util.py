@@ -86,7 +86,7 @@ class Counter_acc:
                 continue
             tmp_s=self.evaluator.eval_pred_per_sample(rlt[key], gt)
             self.score[key]+=tmp_s
-            rlt[key]=(rlt[key], tmp_s)
+            rlt[key]=(tmp_s, rlt[key], )
                 
         # for key in rlt:
         #     if key in ['least_inter_ratio', 'patch_inter_ratio']:

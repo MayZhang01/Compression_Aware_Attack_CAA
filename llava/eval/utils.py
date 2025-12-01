@@ -259,3 +259,18 @@ def extract_name_from_path(s):
         return s[last_slash + 1:last_dot]
     else:
         return None
+
+def print_args(args, logger):
+    
+    key_dict={}
+    for key, value in args.__dict__.items():
+        if not key.startswith('__') and key not in key_dict:
+            if key=='epsilon':
+                key_dict[key]=int(args.epsilon*255)
+            else:
+                key_dict[key]=value
+    for key, value in args.__class__.__dict__.items():
+        if not key.startswith('__') and key not in key_dict:
+            key_dict[key]=value
+    for key in key_dict:
+        logger.print_log(f"{key}: {key_dict[key]}")
