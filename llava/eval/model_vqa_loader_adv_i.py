@@ -23,6 +23,15 @@ import numpy as np
 from llava.eval.m4c_evaluator import TextVQAAccuracyEvaluator
 from llava.eval.model_vqa_loader_util import split_list, get_chunk, CustomDataset, Counter_acc, Counter, create_data_loader, collate_fn
 
+from llava.eval.find_adv_vnl import opt_adv_image_vanilla
+
+def get_target_label_from_gt(gt, tokenizer, target_label=[], none_char=[1,29871]):
+    tids_list=tokenizer(gt)['input_ids']
+    for tl in tids_list:
+        for t in tl:
+            if t not in target_label and t not in none_char:
+                target_label.append(t)
+    return target_label
 
 def eval_model(args, tokenizer, model, image_processor):
     
@@ -101,28 +110,61 @@ def eval_model(args, tokenizer, model, image_processor):
                 # image_feature_size=(1,576,4096)
             )
             ori_prompt_len=model.model.prompt_len[0]
-        
-        adv_images, adv_input_embeds, adv_num, patch_inter_ratio, least_inter_ratio=opt_adv_image_patch(
-            model, new_input_embeds, attention_mask,
-            images=image_tensor.to(dtype=torch.float16, device='cuda', non_blocking=True), 
-            image_shape=576,        
-            # token_length_list=[new_input_embeds.shape[1]],  
-            pre_prompt_length_list=[torch.where(input_ids==-200)[1][0].item()], 
-            target_layer_idx=args.target_layer_idx, 
-            adv_steps=args.adv_steps, 
-            adv_lr=args.adv_lr,
-            epsilon=args.epsilon,
-            n_patch_num=args.n_patch_num,
-            l_patch_num=args.l_patch_num,
-            bpr_ths=args.bpr_ths,
-            image_size=args.image_size,
-            patch_size=args.patch_size,
-            logger=logger,
-            most_flag=most_flag,
-            w_bpr_l=w_bpr_l, w_bpr_p=w_bpr_p, w_dir_l=w_dir_l, w_dir_p=w_dir_p, w_bpr_lp=w_bpr_lp,
-            w_ori_l=w_ori_l, w_ori_p=w_ori_p,
-            stop_teps=stop_teps, stop_ratio=stop_ratio,
-        )
+        if args.atk=="ca":
+            adv_images, adv_input_embeds, adv_num, patch_inter_ratio, least_inter_ratio=opt_adv_image_patch(
+                model, new_input_embeds, attention_mask,
+                images=image_tensor.to(dtype=torch.float16, device='cuda', non_blocking=True), 
+                image_shape=576,        
+                # token_length_list=[new_input_embeds.shape[1]],  
+                pre_prompt_length_list=[torch.where(input_ids==-200)[1][0].item()], 
+                target_layer_idx=args.target_layer_idx, 
+                adv_steps=args.adv_steps, 
+                adv_lr=args.adv_lr,
+                epsilon=args.epsilon,
+                n_patch_num=args.n_patch_num,
+                l_patch_num=args.l_patch_num,
+                bpr_ths=args.bpr_ths,
+                image_size=args.image_size,
+                patch_size=args.patch_size,
+                logger=logger,
+                patch_or_noise=patch_or_noise,
+                most_flag=most_flag,
+                w_bpr_l=w_bpr_l, w_bpr_p=w_bpr_p, w_dir_l=w_dir_l, w_dir_p=w_dir_p, w_bpr_lp=w_bpr_lp,
+                w_ori_l=w_ori_l, w_ori_p=w_ori_p,
+                stop_teps=stop_teps, stop_ratio=stop_ratio,
+            )
+        elif args.atk=="vnl":
+            target_label=get_target_label_from_gt(['Sorry', ' Sorry', 'sorry', ' sorry'], tokenizer, target_label=[])
+            untarget_label=None
+            if isinstance(gt, list):
+                untarget_label=get_target_label_from_gt(gt, tokenizer, target_label=[11125])
+            elif 'yes' in gt.lower():
+                target_label=get_target_label_from_gt(['No', ' No', 'no', ' no'], tokenizer, target_label=[])
+                untarget_label=get_target_label_from_gt(['Yes', ' Yes', 'yes', ' yes'], tokenizer, target_label=[])
+            elif 'no' in gt.lower():
+                target_label=get_target_label_from_gt(['Yes', ' Yes', 'yes', ' yes'], tokenizer, target_label=[])
+                untarget_label=get_target_label_from_gt(['No', ' No', 'no', ' no'], tokenizer, target_label=[])
+            
+            adv_images, adv_input_embeds, adv_num, patch_inter_ratio, least_inter_ratio=opt_adv_image_vanilla(
+                model, new_input_embeds, attention_mask,
+                images=image_tensor.to(dtype=torch.float16, device='cuda', non_blocking=True), 
+                image_shape=576,        
+                # token_length_list=[new_input_embeds.shape[1]],  
+                pre_prompt_length_list=[torch.where(input_ids==-200)[1][0].item()], 
+                target_layer_idx=args.target_layer_idx, 
+                adv_steps=args.adv_steps, 
+                adv_lr=args.adv_lr,
+                epsilon=args.epsilon,
+                n_patch_num=args.n_patch_num,
+                l_patch_num=args.l_patch_num,
+                bpr_ths=args.bpr_ths,
+                image_size=args.image_size,
+                patch_size=args.patch_size,
+                logger=logger,
+                patch_or_noise=patch_or_noise,
+                target_label=target_label,
+                untarget_label=untarget_label,
+            )
 
         rlt={'patch_inter_ratio':patch_inter_ratio, 'least_inter_ratio':least_inter_ratio}
         try:

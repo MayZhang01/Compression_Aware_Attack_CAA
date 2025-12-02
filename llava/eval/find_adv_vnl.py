@@ -1,11 +1,11 @@
 import torch
 import torch.nn.functional as F
-from transformers.models.llama.modeling_llama import apply_rotary_pos_emb
 import math
 from torch.optim.lr_scheduler import StepLR
-from eval.utils import loss_norm, intersection_ratio, add_square_patch, save_clip_tensor_as_image, reshape_image
-from eval.find_adv_util import cat_adv_embed, trace_transformer_layers_grad, get_attn_mean, BPR_loss, weighted_sign_mse_loss, tanh_mse_loss, cos_mse_loss, mse_loss
-from eval.find_adv_util import get_patch_mask, effective_weight
+from llava.eval.utils import save_clip_tensor_as_image
+from llava.eval.find_adv_util import cat_adv_embed, trace_transformer_layers_grad
+from llava.eval.find_adv_util import get_patch_mask
+
 
 def opt_adv_image_vanilla(
     model, input_embeds,  attention_mask,
@@ -118,7 +118,7 @@ def opt_adv_image_vanilla(
             )
             pixel_least_mask = pixel_least_mask.to(device)
         else:
-            pixel_least_mask=torch.zeros_like((image_size, image_size), dtype=dtype, device=device)
+            pixel_least_mask=torch.zeros((image_size, image_size), dtype=dtype, device=device)
 
         if n_patch_num>0:
             noise_patch_mask[topk_v_tar[-n_patch_num:]] = True
@@ -142,11 +142,13 @@ def opt_adv_image_vanilla(
     last_adv_patch=torch.zeros_like(adv_patch)
     for step in range(adv_steps):
         adv_images=images.clone()
-        if patch_or_noise:
-            adv_images=adv_images*(1-pixel_patch_mask)+adv_patch*pixel_patch_mask
-        else:
-            adv_images=adv_images+adv_patch*pixel_patch_mask
-        adv_images=adv_images+adv_perturbs*pixel_least_mask
+        if n_patch_num>0:
+            if patch_or_noise:
+                adv_images=adv_images*(1-pixel_patch_mask)+adv_patch*pixel_patch_mask
+            else:
+                adv_images=adv_images+adv_patch*pixel_patch_mask
+        if l_patch_num>0:
+            adv_images=adv_images+adv_perturbs*pixel_least_mask
         save_clip_tensor_as_image(adv_images.cpu(),'2.png')
         adv_image_embeds = model.encode_images(adv_images)
         adv_input_embeds = cat_adv_embed(
@@ -216,9 +218,9 @@ def opt_adv_image_vanilla(
             step, 
             'loss: ', round(loss.item(),1), loss_dict, 
             "ben_label:", ben_target.item(), 
+            "adv_label:", adv_label,
             "untarget_label:", untarget_label,
             "target_label:", target_label,
-            "adv_label:", adv_label,
         )
         if (loss_un.item()>20 and loss_t.item()<1) and (
             adv_label in (target_label if isinstance(target_label, list) else [target_label])

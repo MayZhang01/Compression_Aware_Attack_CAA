@@ -25,15 +25,15 @@ from llava.model.language_model.llava_llama_pdrop import LlavaLlamaForCausalLM_P
 
 
 def load_pretrained_model(model_path, model_base, model_name, pdrop_infer=False, load_8bit=False, load_4bit=False, device_map="auto", device="cuda", use_flash_attn=False, **kwargs):
-    kwargs = {"device_map": device_map, **kwargs}
+    kwargs = {**kwargs}#"device_map": device_map, *}
 
-    if device != "cuda":
-        kwargs['device_map'] = {"": device}
+    # if device != "cuda":
+    #     kwargs['device_map'] = {"": device}
 
     if load_8bit:
         kwargs['load_in_8bit'] = True
     elif load_4bit:
-        kwargs['load_in_4bit'] = True
+        # kwargs['load_in_4bit'] = True
         kwargs['quantization_config'] = BitsAndBytesConfig(
             load_in_4bit=True,
             bnb_4bit_compute_dtype=torch.float16,
@@ -117,7 +117,8 @@ def load_pretrained_model(model_path, model_base, model_name, pdrop_infer=False,
                 tokenizer = AutoTokenizer.from_pretrained(model_path, use_fast=False)
                 model = LlavaLlamaForCausalLM_PDrop.from_pretrained(
                     model_path,
-                    low_cpu_mem_usage=True,
+                    device_map=None,
+                    # low_cpu_mem_usage=True,
                     **kwargs
                 )
             else:

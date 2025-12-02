@@ -60,7 +60,8 @@ tokenizer, model, image_processor, context_len = load_pretrained_model(
     model_path, 
     args.model_base, 
     model_name,
-    pdrop_infer
+    pdrop_infer,
+    load_4bit=True
 )
 epsilon_list=eval(args.epsilon_list)
 adv_steps_list=eval(args.adv_steps_list)
