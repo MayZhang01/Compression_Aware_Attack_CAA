@@ -5,7 +5,6 @@ import math
 from torch.optim.lr_scheduler import StepLR
 from llava.eval.utils import loss_norm, intersection_ratio, add_square_patch, save_clip_tensor_as_image
 from llava.eval.find_adv_util import cat_adv_embed, trace_transformer_layers_grad, get_attn_mean, BPR_loss, weighted_sign_mse_loss, mse_loss
-
 from llava.eval.find_adv_util import get_patch_mask
 
 

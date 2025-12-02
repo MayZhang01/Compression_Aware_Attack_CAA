@@ -20,7 +20,7 @@ ArgsDefault = type('Args', (), {
     "model_path": "../../model_weight/Qwen2.5-VL-3B-Instruct",
     "image_folder": '../playground/data/eval/textvqa/train_images',
     # "question_file": "../playground/data/eval/textvqa/llava_vqa_filter_rule1.jsonl",
-    "question_file": "../playground/data/eval/textvqa/qwen25_3b_llava_vqa_filter_rule1.jsonl",
+    "question_file": "../playground/data/eval/textvqa/qwen25_3b_7b_llava_vqa_filter_rule1.jsonl",
     "temperature": 0,
     "conv_mode": "llava_v1",
     "num_chunks":1,
@@ -30,7 +30,7 @@ ArgsDefault = type('Args', (), {
     "max_new_tokens":5,
     "layer_list":'[2]',
     "target_layer_idx":2, 
-    "image_token_ratio_list":"[1, 0.5, 0.2, 0.15, 0.1]",
+    "image_token_ratio_list":"[1.0, 0.7, 0.5, 0.3, 0.2]",
     "adv_steps_list":"[100]",
     "adv_lr":1,
     "cut_num":1,
@@ -46,8 +46,9 @@ ArgsDefault = type('Args', (), {
     "rlt_path":'',
     "re_scale":False,
     "most_flag":False,
-    "w_bpr_l":20, "w_bpr_p":20, "w_dir_l":10, "w_dir_p":10, "w_bpr_lp":10,
-    "w_ori_l":-2, "w_ori_p":-2,
+    "w_bpr_l":20, "w_bpr_p":20, "w_dir_l":10, "w_dir_p":5, "w_bpr_lp":5,
+    "w_ori_l":10, "w_ori_p":10,
+    "stop_teps":20, "stop_ratio":0.75,
 })
 
 args = get_args(ArgsDefault)
