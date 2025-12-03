@@ -5,7 +5,7 @@ import math
 from torch.optim.lr_scheduler import StepLR
 from llava.eval.utils import loss_norm, intersection_ratio, add_square_patch, save_clip_tensor_as_image
 from llava.eval.find_adv_util import cat_adv_embed, trace_transformer_layers_grad, get_attn_mean, BPR_loss, weighted_sign_mse_loss, mse_loss
-from llava.eval.find_adv_util import get_patch_mask
+from llava.eval.find_adv_util import get_patch_mask, effective_weight
 
 
 def opt_adv_image_patch(
@@ -152,8 +152,10 @@ def opt_adv_image_patch(
 
         # Extract the projection weight matrices
         # Each has shape: (hidden_dim, hidden_dim)
-        W_Q = q_proj.weight.detach()
-        W_K = k_proj.weight.detach()
+        
+        # 1) 得到等效浮点权重（无论是否量化/LoRA，都数值等价于模块前向）
+        W_Q = effective_weight(q_proj)    # (out_q, in)
+        W_K = effective_weight(k_proj)    # (out_k, in)
 
         # print("W_Q shape:", W_Q.shape)
         # print("W_K shape:", W_K.shape)

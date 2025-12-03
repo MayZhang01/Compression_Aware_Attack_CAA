@@ -7,6 +7,19 @@ from llava.eval.utils import loss_norm, intersection_ratio, add_square_patch, ge
 import random
 import argparse
 
+
+@torch.no_grad()
+def effective_weight(linear):
+    dev = next(linear.parameters()).device
+    # 选一个合理 dtype；或直接用下一行从参数推断
+    dtype = next((p.dtype for p in linear.parameters() if p.requires_grad), torch.float16)
+    in_f, out_f = linear.in_features, linear.out_features
+    I = torch.eye(in_f, device=dev, dtype=dtype)           # (in_f, in_f)
+    Y = linear(I)                                          # (in_f, out_f) = I @ W^T + b
+    b = linear.bias if linear.bias is not None else 0
+    W_T = Y - b                                            # 去掉 bias 广播
+    return W_T.T.contiguous()                              # (out_f, in_f)
+
 def judge_adv(output_c:str, output_nc:str):
     output_c=output_c.lower()
     output_nc=output_nc.lower()
