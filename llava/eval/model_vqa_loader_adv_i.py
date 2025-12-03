@@ -239,7 +239,8 @@ def eval_model(args, tokenizer, model, image_processor):
         str(w_ori_l), str(w_ori_p),
         str(stop_teps), str(stop_ratio),
     ])+'.pt'
-    torch.save(adv_data_dict, data_path)
+    if args.adv_steps>0:
+        torch.save(adv_data_dict, data_path)
     logger.print_log('saved_data_path:', data_path)
     
     print_args(args, logger)
