@@ -3,5 +3,3 @@ figs
 llava
 logs
 saved_data
-top_rank_index
-topk_index
