@@ -167,30 +167,31 @@ def eval_model(args, tokenizer, model, image_processor):
             )
 
         rlt={'patch_inter_ratio':patch_inter_ratio, 'least_inter_ratio':least_inter_ratio}
-        try:
-            for cp in cp_list:
-                with torch.inference_mode():
-                    if model_class_name == "LlavaLlamaForCausalLM_PDrop":
-                        model.model.layer_list = layer_list
-                        model.model.image_token_ratio_list = [cp]
-                        model.model.image_token_ratio_list.insert(0, 1.0)
-                    model.model.prompt_len[0]=ori_prompt_len+adv_num
-                    adv_output_ids = model.generate(
-                        inputs_embeds=adv_input_embeds,
-                        image_sizes=image_sizes,
-                        do_sample=True if args.temperature > 0 else False,
-                        # temperature=args.temperature,
-                        # top_p=args.top_p,
-                        num_beams=args.num_beams,
-                        max_new_tokens=args.max_new_tokens,
-                        use_cache=True
-                    )
-                adv_outputs = tokenizer.batch_decode(adv_output_ids, skip_special_tokens=True)[0].strip()
-                rlt[str(cp)]=adv_outputs
-        except Exception as e:
-            logger.print_log(f"Error during generation for idx {idx}: {e}")
-            torch.cuda.empty_cache()
-            continue
+        # try:
+        for cp in cp_list:
+            with torch.inference_mode():
+                if model_class_name == "LlavaLlamaForCausalLM_PDrop":
+                    model.model.layer_list = layer_list
+                    model.model.image_token_ratio_list = [cp]
+                    model.model.image_token_ratio_list.insert(0, 1.0)
+                    model.model.most_or_least=most_or_least
+                model.model.prompt_len[0]=ori_prompt_len+adv_num
+                adv_output_ids = model.generate(
+                    inputs_embeds=adv_input_embeds,
+                    image_sizes=image_sizes,
+                    do_sample=True if args.temperature > 0 else False,
+                    # temperature=args.temperature,
+                    # top_p=args.top_p,
+                    num_beams=args.num_beams,
+                    max_new_tokens=args.max_new_tokens,
+                    use_cache=True
+                )
+            adv_outputs = tokenizer.batch_decode(adv_output_ids, skip_special_tokens=True)[0].strip()
+            rlt[str(cp)]=adv_outputs
+        # except Exception as e:
+        #     logger.print_log(f"Error during generation for idx {idx}: {e}")
+        #     torch.cuda.empty_cache()
+        #     continue
 
         if 'textvqa' in args.question_file:
             rlt=counter.add_rlt(gt=gt, rlt=rlt)
@@ -239,7 +240,8 @@ def eval_model(args, tokenizer, model, image_processor):
         str(w_ori_l), str(w_ori_p),
         str(stop_teps), str(stop_ratio),
     ])+'.pt'
-    torch.save(adv_data_dict, data_path)
+    if args.adv_steps>0:
+        torch.save(adv_data_dict, data_path)
     logger.print_log('saved_data_path:', data_path)
     
     print_args(args, logger)

@@ -1180,6 +1180,20 @@ class LlamaModel(LlamaPreTrainedModel):
         # embed positions
         hidden_states = inputs_embeds
 
+        # select text tokens
+        v_token_start= self.image_token_posi[0]  # image start index
+        text_token_start= v_token_start+self.image_tokens[0]+1  # image end index
+        if (len(self.layer_list)>=3 and hidden_states.shape[1] !=1):
+            v_t = hidden_states[:, v_token_start: text_token_start, :]
+            t_t = hidden_states[:, text_token_start: , :]
+            m_v_t = v_t @ t_t.transpose(1, 2) # [1, 576, 53]
+            m_v_t_s = m_v_t.softmax(2).mean(1) # [1, 53]
+            t_token_idx = torch.where(m_v_t_s > m_v_t_s.mean())[1]
+            # m_v_t_m = m_v_t.mean(1)
+            # self.logger.print_log('txt_gap:',(m_v_t_m[:,:-1].max()-m_v_t_m[:,-1:].mean()).item())
+        else:
+            t_token_idx = None
+            
         # decoder layers
         all_hidden_states = () if output_hidden_states else None
         all_self_attns = () if output_attentions else None
@@ -1221,9 +1235,11 @@ class LlamaModel(LlamaPreTrainedModel):
             # rank & drop after specific layer
             # only drop in prefill stage when inference
             rank_layer = layer_idx+1
-            if rank_layer in self.layer_list:
+            if rank_layer in self.layer_list and rank_layer<24:
+                stage = self.layer_list.index(rank_layer) # determine current stage
+                # if hasattr(self, 'keep_length') and self.keep_length[0][stage]['keep_length']==self.keep_length[0][stage]['last_length']:
+                #     continue
                 if hidden_states.shape[1]!=1:  # prefill stage or training
-                    stage = self.layer_list.index(rank_layer) # determine current stage
                     (
                         position_ids,
                         attention_mask,
@@ -1235,7 +1251,8 @@ class LlamaModel(LlamaPreTrainedModel):
                         features = hidden_states,   
                         position_ids=position_ids,
                         attention_mask=attention_mask,
-                        labels = labels
+                        labels = labels,
+                        t_token_idx=t_token_idx,
                     )
                     
                     # process attention_mask again after undating 
@@ -1260,8 +1277,10 @@ class LlamaModel(LlamaPreTrainedModel):
                 else:
                     # update position_ids in decoding stage when inference
                     stage = self.layer_list.index(rank_layer) # determine current stage
-                    cur_visual_length = [int(cur_image_token * self.image_token_ratio_list[stage]) for cur_image_token in self.image_tokens]
-                    next_visual_length = [int(cur_image_token * self.image_token_ratio_list[stage + 1]) for cur_image_token in self.image_tokens]
+                    # cur_visual_length = [int(cur_image_token * self.image_token_ratio_list[stage]) for cur_image_token in self.image_tokens]
+                    # next_visual_length = [int(cur_image_token * self.image_token_ratio_list[stage + 1]) for cur_image_token in self.image_tokens]
+                    next_visual_length = [k[stage]['keep_length'] for k in self.keep_length]
+                    cur_visual_length = [k[stage]['last_length'] for k in self.keep_length]
                     new_position_ids = []
                     for idx, cur_position_ids in enumerate(position_ids):
                         cur_position_ids = cur_position_ids - (cur_visual_length[idx] - next_visual_length[idx])
@@ -1291,7 +1310,8 @@ class LlamaModel(LlamaPreTrainedModel):
     # implementation of pdrop
     def pdrop_rank_drop(
         self, cur_num, rank_layer, features ,
-        position_ids, attention_mask, labels
+        position_ids, attention_mask, labels,
+        t_token_idx=None,
     ):
         
         # features=features+torch.randn(
@@ -1308,18 +1328,55 @@ class LlamaModel(LlamaPreTrainedModel):
         if getattr(self.config, 'tokenizer_padding_side', 'right') == "right":
             
             batch_size = features.shape[0]
-            image_tokens = [int(cur_image_token * self.image_token_ratio_list[cur_num]) for cur_image_token in self.image_tokens]
-            keep_length = [int(cur_image_token * self.image_token_ratio_list[cur_num + 1]) for cur_image_token in self.image_tokens]
+
+
+            if t_token_idx is None:
+                t_token_idx=[]
+                for i in range(batch_size):
+                    t_token_idx.append(self.prompt_len[i]-1)
+                t_token_idx=torch.tensor(t_token_idx).to(features[0].device)
+            if cur_num==0:
+                self.keep_length=[]
+                for i in range(batch_size):
+                    image_start_index= self.image_token_posi[i]  # image start index
+                    # ori_image_end_index= self.image_tokens  # image end index
+                    last_length = self.image_tokens[i]
+                    tmp_ratio_dict={}
+                    last_prompt_len=self.prompt_len[i] + self.image_tokens[i]
+                    for idx in range(len(self.layer_list)):
+                        if idx+1 < len(self.image_token_ratio_list):
+                            token_ratio=self.image_token_ratio_list[idx+1]
+                        else:
+                            if self.image_token_ratio_list[1]==1:
+                                token_ratio=1.0
+                            else:
+                                token_ratio=0.5
+                        keep_length = int(token_ratio * last_length)  # keep length of image tokens
+                        keep_length = max(50, keep_length)  # at least keep 20 tokens
+                        image_end_index = image_start_index + last_length
+                    
+                        t_idx=t_token_idx+last_length
+                        tmp_dict={
+                            'last_length':last_length,
+                            'keep_length':keep_length, 
+                            'image_start_index':image_start_index, 
+                            'image_end_index':image_end_index,
+                            't_idx':t_idx,
+                        }
+                        tmp_ratio_dict[idx]=tmp_dict
+                        last_prompt_len=last_prompt_len-(last_length-keep_length)
+                        last_length=keep_length
+                    self.logger.print_log(f"keep_length:",[tmp_ratio_dict[r]['keep_length']for r in tmp_ratio_dict])
+                    self.keep_length.append(tmp_ratio_dict)
+            # if self.keep_length[0][cur_num]['keep_length']==self.keep_length[0][cur_num]['last_length']:
+            #     return position_ids, attention_mask, features, labels
+            # image_tokens = [int(cur_image_token * self.image_token_ratio_list[cur_num]) for cur_image_token in self.image_tokens]
+            # keep_length = [int(cur_image_token * self.image_token_ratio_list[cur_num + 1]) for cur_image_token in self.image_tokens]
+            image_tokens = [k[cur_num]['last_length'] for k in self.keep_length]
 
             features_list = []
             attention_mask_list = []
             labels_list = []
-
-            # for i in range(batch_size):
-            #     image_index= self.image_token_posi[i]
-            #     start_index = image_index + image_tokens[i]
-            #     rand_index = torch.randint(image_tokens[i],(50,))+image_index
-            #     features[i][ rand_index, :]=features[i][ rand_index, :]+1.5
 
             if attention_mask is None:
                 attention_mask = torch.ones((batch_size,features.shape[1]), dtype=torch.bool, device=features.device)
@@ -1378,6 +1435,11 @@ class LlamaModel(LlamaPreTrainedModel):
                 cur_query_states = query_states[i] 
                 cur_eager_attention_mask = eager_attention_mask[i] 
                 
+                keep_length=self.keep_length[i][cur_num]['keep_length']
+                image_start_index=self.keep_length[i][cur_num]['image_start_index']
+                image_end_index=self.keep_length[i][cur_num]['image_end_index']
+                t_idx=self.keep_length[i][cur_num]['t_idx']
+
                 # choose last instruction token as query
                 if self.training:
                     answer_index = torch.where(labels[i] != -100)[0].tolist()
@@ -1399,78 +1461,34 @@ class LlamaModel(LlamaPreTrainedModel):
 
                 else:
                     prompt_total_len = self.prompt_len[i] + image_tokens[i]
-                    text_query_states = cur_query_states[:,prompt_total_len-1,:].unsqueeze(1)  
-                    text_eager_attention_mask = cur_eager_attention_mask[:,prompt_total_len-1,:].unsqueeze(1)
+                    # text_query_states = cur_query_states[:,prompt_total_len-1,:].unsqueeze(1)  
+                    # text_eager_attention_mask = cur_eager_attention_mask[:,prompt_total_len-1,:].unsqueeze(1)
+                    text_query_states = cur_query_states[:,t_idx,:]
+                    text_eager_attention_mask = cur_eager_attention_mask[:,t_idx,:]
                 
                 # calculate attention map
                 attn_weights = torch.matmul(text_query_states, cur_key_states.transpose(1, 2)) / math.sqrt(head_dim) #(num_head, text_token,seq_len)
                 attn_weights = attn_weights + text_eager_attention_mask
                 attn_weights = nn.functional.softmax(attn_weights, dim=-1, dtype=torch.float32).to(query_states.dtype) #(num_head, text_token,seq_len)
-                
+                attn_weights = attn_weights.mean(dim=1).unsqueeze(1)
+
                 attention_avg_head = torch.mean(attn_weights, dim=0) # ave across heads
-                attention_avg_head = attention_avg_head[:,image_index:image_index+image_tokens[i]] # select image token as keys
+                # attention_avg_head = attention_avg_head[:,image_index:image_index+image_tokens[i]] # select image token as keys
+                attention_avg_head = attention_avg_head[:,image_start_index:image_end_index] # select image token as keys
                 attention_avg_text = torch.mean(attention_avg_head, dim=0) # (576)
 
+                top_rank_index = attention_avg_text.topk(keep_length, largest=self.most_or_least).indices #, largest=False
                 
-                # rank and drop by attention score
-
-                # # 1. Get the top 100 largest values and their indices
-                # topk_values, topk_indices = torch.topk(attention_avg_text, k=keep_length[i])
-
-                # # 2. Create a mask to select the remaining (non-top-100) indices
-                # all_indices = torch.arange(attention_avg_text.size(0))
-                # remaining_mask = torch.ones_like(all_indices, dtype=torch.bool)
-                # remaining_mask[topk_indices] = False
-                # remaining_indices = all_indices[remaining_mask]
-
-                # # 3. Randomly shuffle the remaining indices
-                # shuffled_indices = remaining_indices[torch.randperm(remaining_indices.size(0))].to(topk_indices.device)
-                # topk_indices = topk_indices[torch.randperm(topk_indices.size(0))].to(topk_indices.device)
-
-                # # 4. Concatenate top 100 indices with the shuffled remaining indices
-                # final_indices = torch.cat([topk_indices, shuffled_indices], dim=0)
-
-                # # 5. Reorder the original tensor according to the new index order
-                # attention_avg_text = attention_avg_text[final_indices]
-
-                # top_rank_index=torch.arange(keep_length[i])
-                # pro=3
-                top_rank_index = attention_avg_text.topk(keep_length[i]).indices #, largest=False
-                # if pro>0 and pro<3:
-                #     top_rank_index = attention_avg_text.topk(keep_length[i]+144*pro).indices
-                #     top_rank_index = top_rank_index[144*(pro):(keep_length[i]+144*(pro)-50)]
-                # elif pro==3:
-                #     top_rank_index = attention_avg_text.topk(keep_length[i], largest=False).indices
-                #     top_rank_index = top_rank_index[50:]
                 top_rank_index = top_rank_index + image_index  
                 self.top_rank_index=top_rank_index
-                # if pro>=1:
-                #     top_rank_index = torch.cat([rand_index.to(top_rank_index.device), top_rank_index])
-                # top_rank_index2 = top_rank_index.clone()
-                # least_rank_index = attention_avg_text.topk(keep_length[i], largest=False).indices #
-                # top_rank_index2 = top_rank_index2 + image_index
-                # least_rank_index = least_rank_index + image_index
-                # least_len=50
-                # top_len=keep_length[i]-least_len
-                # top_rank_index = torch.cat([top_rank_index[:top_len], least_rank_index[:least_len]])
-                # en_end=min(50, keep_length[i])
-                # enlarge_index = top_rank_index[:en_end].clone()
-                # enlarge_index= enlarge_index.sort().values  
-                # top_rank_index = torch.randint(attention_avg_text.shape[0],(keep_length[i],))
+                
                 start_index = image_index + image_tokens[i]
-                self.logger.print_log(
-                    # round((attention_avg_text.topk(2).values.sum()/attention_avg_text.sum()).item(), 4),
-                    # round((attention_avg_text.topk(20).values.sum()/attention_avg_text.sum()).item(), 4),
-                    # round((attention_avg_text.topk(50).values.sum()/attention_avg_text.sum()).item(), 4),
-                    'inter_ratio', intersection_ratio(torch.arange(image_index, image_index+100, 1), top_rank_index[0:100].cpu()),
-                    'inter_ratio', intersection_ratio(torch.arange(start_index-100, start_index, 1), top_rank_index[0:100].cpu()),
-                )
+                # self.logger.print_log(
+                #     'inter_ratio', intersection_ratio(torch.arange(image_index, image_index+100, 1), top_rank_index[0:100].cpu()),
+                #     'inter_ratio', intersection_ratio(torch.arange(start_index-100, start_index, 1), top_rank_index[0:100].cpu()),
+                # )
                 top_rank_index= top_rank_index.sort().values  
 
-                # tmp_embedding=features[i][ top_rank_index, :]
-                # features[i][ top_rank_index, :]=tmp_embedding+torch.randn_like(tmp_embedding)*tmp_embedding.std()*64/255
-                # features[i][ top_rank_index2[:min(least_len,top_len)], :]=features[i][ top_rank_index2[:min(least_len,top_len)], :]+1.5
-                # features[i][ least_rank_index[:least_len], :]=features[i][ least_rank_index[:least_len], :]+1.5
                 new_input_embeds = torch.cat([features[i][ :image_index, :] ,features[i][ top_rank_index, :], features[i][start_index:, :]], dim=0)
                 new_labels = torch.cat([labels[i][ :image_index],labels[i][ top_rank_index], labels[i][start_index:]], dim=0)
                 new_attention_mask = torch.cat([attention_mask[i][:image_index], attention_mask[i][top_rank_index], attention_mask[i][start_index:]], dim=0)
