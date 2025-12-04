@@ -1183,7 +1183,7 @@ class LlamaModel(LlamaPreTrainedModel):
         # select text tokens
         v_token_start= self.image_token_posi[0]  # image start index
         text_token_start= v_token_start+self.image_tokens[0]+1  # image end index
-        if (len(self.layer_list)>=3 and hidden_states.shape[1] !=1):
+        if (self.layer_list==[2,6,15] and hidden_states.shape[1] !=1):
             v_t = hidden_states[:, v_token_start: text_token_start, :]
             t_t = hidden_states[:, text_token_start: , :]
             m_v_t = v_t @ t_t.transpose(1, 2) # [1, 576, 53]
@@ -1366,7 +1366,10 @@ class LlamaModel(LlamaPreTrainedModel):
                         tmp_ratio_dict[idx]=tmp_dict
                         last_prompt_len=last_prompt_len-(last_length-keep_length)
                         last_length=keep_length
-                    self.logger.print_log(f"keep_length:",[tmp_ratio_dict[r]['keep_length']for r in tmp_ratio_dict])
+                    self.logger.print_log(
+                        "keep_length:",[tmp_ratio_dict[r]['keep_length']for r in tmp_ratio_dict],
+                        't_token_idx',t_token_idx
+                    )
                     self.keep_length.append(tmp_ratio_dict)
             # if self.keep_length[0][cur_num]['keep_length']==self.keep_length[0][cur_num]['last_length']:
             #     return position_ids, attention_mask, features, labels
