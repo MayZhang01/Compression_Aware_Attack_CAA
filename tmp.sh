@@ -1,29 +1,9 @@
-
-
-
-# qwen2.5-vl-7b normal pope eval
+# qwen2.5-vl-7b 全图攻击
 python llava_eval_vqa.py \
 --model_path "../../model_weight/llava-v1.5-7b" \
 --layer_list "[2]" \
 --target_layer_idx 2 \
---adv_steps_list "[100, 0]" \
---adv_lr 1 \
---n_patch_num 0.1 \
---l_patch_num 0.2 \
---epsilon_list "[16/255, 64/255, ]" \
---bpr_ths 0.1 \
---cut_num 1 \
---re_scale "False" \
---atk "ca" \
---patch_or_noise "False" \
---most_or_least "True"
-
-# qwen2.5-vl-7b 全图攻击
-python llava_eval_mme.py \
---model_path "../../model_weight/llava-v1.5-7b" \
---layer_list "[2]" \
---target_layer_idx 2 \
---adv_steps_list "[150]" \
+--adv_steps_list "[100]" \
 --adv_lr 1 \
 --n_patch_num 0.3 \
 --l_patch_num 0.6 \
@@ -37,14 +17,14 @@ python llava_eval_mme.py \
 --stop_teps 10 --most_flag "True"
 
 # qwen2.5-vl-7b 无BPR
-python llava_eval_mme.py \
+python llava_eval_vqa.py \
 --model_path "../../model_weight/llava-v1.5-7b" \
 --layer_list "[2]" \
 --target_layer_idx 2 \
---adv_steps_list "[150]" \
+--adv_steps_list "[100]" \
 --adv_lr 1 \
---n_patch_num 0.2 \
---l_patch_num 0.4 \
+--n_patch_num 0.1 \
+--l_patch_num 0.2 \
 --epsilon_list "[32/255]" \
 --bpr_ths 0.1 \
 --cut_num 1 \
@@ -55,19 +35,19 @@ python llava_eval_mme.py \
 --w_bpr_l 0 --w_bpr_p 0
 
 # qwen2.5-vl-7b 无hierarchical least
-python llava_eval_mme.py \
+python llava_eval_vqa.py \
 --model_path "../../model_weight/llava-v1.5-7b" \
 --layer_list "[2]" \
 --target_layer_idx 2 \
---adv_steps_list "[150]" \
+--adv_steps_list "[100]" \
 --adv_lr 1 \
---n_patch_num 0.4 \
+--n_patch_num 0.2 \
 --l_patch_num 0 \
 --epsilon_list "[32/255]" \
 --re_scale "False" \
 --atk "ca" --stop_teps 30
 
-python llava_eval_mme.py \
+python llava_eval_vqa.py \
 --model_path "../../model_weight/llava-v1.5-7b" \
 --layer_list "[2]" \
 --target_layer_idx 2 \
@@ -79,7 +59,7 @@ python llava_eval_mme.py \
 --re_scale "False" \
 --atk "ca"
 
-python llava_eval_mme.py \
+python llava_eval_vqa.py \
 --model_path "../../model_weight/llava-v1.5-7b" \
 --layer_list "[2]" \
 --target_layer_idx 2 \
@@ -90,23 +70,3 @@ python llava_eval_mme.py \
 --epsilon_list "[32/255]" \
 --re_scale "False" \
 --atk "ca"
-
-
-
-# qwen2.5-vl-7b 全图攻击
-python llava_eval_mme.py \
---model_path "../../model_weight/llava-v1.5-7b" \
---layer_list "[2]" \
---target_layer_idx 2 \
---adv_steps_list "[150]" \
---adv_lr 1 \
---n_patch_num 0.3 \
---l_patch_num 0.6 \
---epsilon_list "[32/255]" \
---bpr_ths 0.1 \
---cut_num 1 \
---re_scale "False" \
---atk "ca" \
---patch_or_noise "False" \
---most_or_least "True" \
---stop_teps 10 --most_flag "True"
