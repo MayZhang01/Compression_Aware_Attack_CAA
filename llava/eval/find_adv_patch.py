@@ -256,11 +256,11 @@ def opt_adv_image_patch(
         
         attn_logits_nc = attn_logits_list_nc[target_layer_idx]
         attn_logits_nc_mean = attn_logits_nc.mean(1)
-        attn_logits_nc_last = attn_logits_nc_mean[:,input_num-1,:]
+        attn_logits_nc_last = attn_logits_nc_mean[:,all_txt_mask,:].mean(1)
 
         attn_scores_nc = attn_scores_list_nc[target_layer_idx]
         attn_scores_nc_mean = attn_scores_nc.mean(1)
-        attn_scores_nc_last = attn_scores_nc_mean[:,input_num-1,:]
+        attn_scores_nc_last = attn_scores_nc_mean[:,all_txt_mask,:].mean(1)
            
         if l_patch_num>0:
             loss_bpr_l=BPR_loss(

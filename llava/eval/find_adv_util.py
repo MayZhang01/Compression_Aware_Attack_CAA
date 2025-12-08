@@ -40,7 +40,8 @@ def trace_transformer_layers_grad(
     # include_mlp=True,
     v_token_start = None,
     v_token_num = None,
-    # t_token_idx = torch.tensor([[0],[27]]),
+    mask_layer=None, 
+    most_mask=None,
 ):
     """
     Differentiable forward pass through selected transformer layers,
@@ -167,6 +168,14 @@ def trace_transformer_layers_grad(
         hidden_states = layer.post_attention_layernorm(hidden_states)
         hidden_states = layer.mlp(hidden_states)
         hidden_states = residual + hidden_states
+
+        
+        if most_mask is not None and mask_layer is not None:
+            if i+1==mask_layer:
+                hidden_states = hidden_states[:, most_mask]
+                # cos = position_embeddings[0][:, :, most_mask]
+                # sin = position_embeddings[1][:, :, most_mask]
+                # position_embeddings = (cos, sin)
 
         if return_all:
             hidden_states_list.append(hidden_states)
