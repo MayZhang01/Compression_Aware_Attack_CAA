@@ -58,7 +58,7 @@ def eval_model(args, tokenizer, model, image_processor):
     random.seed(160)
     random.shuffle(questions)
     q_start=0
-    questions = questions[q_start:311]
+    questions = questions[q_start:157]
     data_loader = create_data_loader(questions, args.image_folder, tokenizer, image_processor, model.config, conv_mode=args.conv_mode)
     
     try:
@@ -80,6 +80,12 @@ def eval_model(args, tokenizer, model, image_processor):
     
     layer_list=eval(args.layer_list)
     cp_list=eval(args.image_token_ratio_list)
+    if layer_list==[2,6,15]:
+        sparse_flag=True
+    else:
+        sparse_flag=False
+
+
     if 'textvqa' in args.question_file:
         evaluator = TextVQAAccuracyEvaluator()
         counter=Counter_acc(cp_list, evaluator=evaluator)
@@ -132,6 +138,7 @@ def eval_model(args, tokenizer, model, image_processor):
                 w_bpr_l=w_bpr_l, w_bpr_p=w_bpr_p, w_dir_l=w_dir_l, w_dir_p=w_dir_p, w_bpr_lp=w_bpr_lp,
                 w_ori_l=w_ori_l, w_ori_p=w_ori_p,
                 stop_teps=stop_teps, stop_ratio=stop_ratio,
+                sparse_flag=sparse_flag
             )
         elif args.atk=="vnl":
             target_label=get_target_label_from_gt(['Sorry', ' Sorry', 'sorry', ' sorry'], tokenizer, target_label=[])
@@ -167,31 +174,31 @@ def eval_model(args, tokenizer, model, image_processor):
             )
 
         rlt={'patch_inter_ratio':patch_inter_ratio, 'least_inter_ratio':least_inter_ratio}
-        # try:
-        for cp in cp_list:
-            with torch.inference_mode():
-                if model_class_name == "LlavaLlamaForCausalLM_PDrop":
-                    model.model.layer_list = layer_list
-                    model.model.image_token_ratio_list = [cp]
-                    model.model.image_token_ratio_list.insert(0, 1.0)
-                    model.model.most_or_least=most_or_least
-                model.model.prompt_len[0]=ori_prompt_len+adv_num
-                adv_output_ids = model.generate(
-                    inputs_embeds=adv_input_embeds,
-                    image_sizes=image_sizes,
-                    do_sample=True if args.temperature > 0 else False,
-                    # temperature=args.temperature,
-                    # top_p=args.top_p,
-                    num_beams=args.num_beams,
-                    max_new_tokens=args.max_new_tokens,
-                    use_cache=True
-                )
-            adv_outputs = tokenizer.batch_decode(adv_output_ids, skip_special_tokens=True)[0].strip()
-            rlt[str(cp)]=adv_outputs
-        # except Exception as e:
-        #     logger.print_log(f"Error during generation for idx {idx}: {e}")
-        #     torch.cuda.empty_cache()
-        #     continue
+        try:
+            for cp in cp_list:
+                with torch.inference_mode():
+                    if model_class_name == "LlavaLlamaForCausalLM_PDrop":
+                        model.model.layer_list = layer_list
+                        model.model.image_token_ratio_list = [cp]
+                        model.model.image_token_ratio_list.insert(0, 1.0)
+                        model.model.most_or_least=most_or_least
+                    model.model.prompt_len[0]=ori_prompt_len+adv_num
+                    adv_output_ids = model.generate(
+                        inputs_embeds=adv_input_embeds,
+                        image_sizes=image_sizes,
+                        do_sample=True if args.temperature > 0 else False,
+                        # temperature=args.temperature,
+                        # top_p=args.top_p,
+                        num_beams=args.num_beams,
+                        max_new_tokens=args.max_new_tokens,
+                        use_cache=True
+                    )
+                adv_outputs = tokenizer.batch_decode(adv_output_ids, skip_special_tokens=True)[0].strip()
+                rlt[str(cp)]=adv_outputs
+        except Exception as e:
+            logger.print_log(f"Error during generation for idx {idx}: {e}")
+            torch.cuda.empty_cache()
+            continue
 
         if 'textvqa' in args.question_file:
             rlt=counter.add_rlt(gt=gt, rlt=rlt)
@@ -202,7 +209,9 @@ def eval_model(args, tokenizer, model, image_processor):
         logger.print_log(idx, ':', cur_prompt.replace('\n', ' '))
         logger.print_log(counter.total+q_start, ':', rlt)
         if counter.total%20==0 and counter.total>0:
-            counter.get_metric(logger=logger)
+            metric=counter.get_metric(logger=logger)
+            # if metric['0.2']['ACC']>0.5:
+            #     break
         adv_data_dict[idx]={
             'text':cur_prompt,
             # 'adv_image_tensor':adv_images.detach().cpu(),

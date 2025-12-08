@@ -28,6 +28,7 @@ def opt_adv_image_patch(
     w_bpr_l=20, w_bpr_p=20, w_dir_l=10, w_dir_p=10, w_bpr_lp=10,
     w_ori_l=-2, w_ori_p=-2,
     stop_teps=80, stop_ratio=0.8,
+    sparse_flag=False, ori_bound=2,
 ):
 
     device = input_embeds.device
@@ -36,6 +37,7 @@ def opt_adv_image_patch(
     v_token_num = image_shape
     v_token_start = pre_prompt_length_list[0] if len(pre_prompt_length_list) != 0 else 0 
     t_token_start = v_token_start+v_token_num
+    t_token_num = input_num - t_token_start
     most_num=int(v_token_num*0.3)
     second_num=int(v_token_num*0.4)
     least_num=v_token_num-most_num-second_num
@@ -80,6 +82,14 @@ def opt_adv_image_patch(
             fixed_input_embeds, ben_image_embeds, 
             start_idx=v_token_start, end_idx=t_token_start
         )
+
+        if sparse_flag:
+            img_embs=ben_input_embeds[:, v_token_start:t_token_start]
+            txt_embs=ben_input_embeds[:, t_token_start:]
+            img_txt_inter = img_embs @ txt_embs.transpose(1, 2) # [1, 576, 53]
+            img_txt_inter = img_txt_inter.softmax(2).mean(1)#
+            _, t_token_idx = torch.where(img_txt_inter > img_txt_inter.mean())
+
         ben_hidden_states_list_nc, ben_attn_score_list_nc, _= trace_transformer_layers_grad(
             model,  
             ben_input_embeds,
@@ -90,12 +100,32 @@ def opt_adv_image_patch(
             v_token_start=v_token_start,
             v_token_num=v_token_num,
         )
-        
-        ben_attn_v_tar_mean =ben_attn_score_list_nc[target_layer_idx].mean(1)[0, input_num-1 ,v_token_start:t_token_start]
-        _, topk_v_tar  = torch.topk(ben_attn_v_tar_mean, k=v_token_num)
-        topk_v_tar  = topk_v_tar+v_token_start
+
+        if sparse_flag:
+            img_embs=ben_input_embeds[:, v_token_start:t_token_start]
+            txt_embs=ben_input_embeds[:, t_token_start:]
+            img_txt_inter = img_embs @ txt_embs.transpose(1, 2) # [1, 576, 53]
+            img_txt_inter = img_txt_inter.softmax(2).mean(1)#
+            _, t_token_idx = torch.where(img_txt_inter > img_txt_inter.mean())
+            t_idx_num=t_token_idx.size()[0]
+        else:
+            t_token_idx = torch.tensor([-1], device=device)
+            t_idx_num=1
         
         all_indices = torch.arange(ben_attn_score_list_nc[target_layer_idx].size(3), device=device)
+
+        txt_mask = torch.zeros(t_token_num, dtype=torch.bool)
+        txt_mask[t_token_idx] = True
+        un_txt_mask = torch.ones(t_token_num, dtype=torch.bool)
+        un_txt_mask[t_token_idx] = False
+        
+        all_txt_mask   = torch.zeros_like(all_indices, dtype=torch.bool)
+        t_token_idx = t_token_idx + t_token_start
+        all_txt_mask[t_token_idx] = True
+        
+        ben_attn_v_tar_mean = ben_attn_score_list_nc[target_layer_idx].mean(1)[0, all_txt_mask ,v_token_start:t_token_start].mean(0)
+        _, topk_v_tar  = torch.topk(ben_attn_v_tar_mean, k=v_token_num)
+        topk_v_tar  = topk_v_tar+v_token_start
 
         most_mask   = torch.zeros_like(all_indices, dtype=torch.bool)
         second_mask = torch.zeros_like(all_indices, dtype=torch.bool)
@@ -163,16 +193,16 @@ def opt_adv_image_patch(
         # Select the first token embedding (for example)
         # Here x is (hidden_dim,)
         if target_layer_idx>0:
-            x = ben_hidden_states_list_nc[target_layer_idx-1][0, -1]
+            x = ben_hidden_states_list_nc[target_layer_idx-1][0, all_txt_mask]
         else:
-            x = fixed_input_embeds[0, -1]
+            x = fixed_input_embeds[0, all_txt_mask]
 
         # Compute q0 = x @ W_Q
         q0 = torch.matmul(x, W_Q)
         # print("q0 vector norm:", q0.norm().item())
 
         # Compute v = W_K.T @ q0
-        v_dir = torch.matmul(W_K.T, q0)
+        v_dir = torch.matmul(W_K.T, q0.T).mean(1)   
         v = v_dir / (v_dir.norm() + 1e-12)       # 方向对齐；若想更大logit，可再乘一个标量α（非Pre-Norm时）
         maxQ_patch=v.unsqueeze(0).repeat(n_patch_num, 1)
         if l_patch_num>0:
@@ -208,6 +238,15 @@ def opt_adv_image_patch(
             fixed_input_embeds, adv_image_embeds, 
             start_idx=v_token_start, end_idx=t_token_start
         )
+        loss_list, loss_dict=[], {}
+        if sparse_flag:
+            img_adv_embs=adv_input_embeds[:, v_token_start:t_token_start]
+            txt_adv_embs=adv_input_embeds[:, t_token_start:]
+            img_txt_inter = img_adv_embs @ txt_adv_embs.transpose(1, 2) # [1, 576, 53]
+            img_txt_inter = img_txt_inter.mean(1)#.softmax(2)
+            loss_txt=img_txt_inter[:,un_txt_mask].max()-img_txt_inter[:,txt_mask].min()
+            loss_list.append(torch.relu(loss_txt.mean()+0.5)*10)
+            loss_dict['loss_txt']=round(loss_txt.item(),2)
         
         hidden_states_list_nc, attn_scores_list_nc, attn_logits_list_nc= trace_transformer_layers_grad(
             model, adv_input_embeds, attention_mask,
@@ -223,7 +262,6 @@ def opt_adv_image_patch(
         attn_scores_nc_mean = attn_scores_nc.mean(1)
         attn_scores_nc_last = attn_scores_nc_mean[:,input_num-1,:]
            
-        loss_list, loss_dict=[], {}
         if l_patch_num>0:
             loss_bpr_l=BPR_loss(
                 attn_logits_nc_last[0], 
@@ -248,7 +286,7 @@ def opt_adv_image_patch(
                 ben_hidden_states_list_nc[target_layer_idx][:,least_patch_mask], 
                 k=1
             )
-            loss_list.append(torch.relu(2-loss_ori_l)*w_ori_l)
+            loss_list.append(torch.relu(ori_bound-loss_ori_l)*w_ori_l)
             loss_dict['ori_l']=round(loss_ori_l.item(),2)
 
         if n_patch_num>0:
@@ -275,7 +313,7 @@ def opt_adv_image_patch(
                 ben_hidden_states_list_nc[target_layer_idx][:,noise_patch_mask], 
                 k=1
             )
-            loss_list.append(torch.relu(2-loss_ori_p)*w_ori_p)
+            loss_list.append(torch.relu(ori_bound-loss_ori_p)*w_ori_p)
             loss_dict['ori_p']=round(loss_ori_p.item(),2)
             
         if l_patch_num>0 and n_patch_num>0:
