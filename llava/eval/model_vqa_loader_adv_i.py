@@ -171,6 +171,8 @@ def eval_model(args, tokenizer, model, image_processor):
                 patch_or_noise=patch_or_noise,
                 target_label=target_label,
                 untarget_label=untarget_label,
+                mask_layer=args.mask_layer,
+                sparse_flag=sparse_flag
             )
 
         rlt={'patch_inter_ratio':patch_inter_ratio, 'least_inter_ratio':least_inter_ratio}

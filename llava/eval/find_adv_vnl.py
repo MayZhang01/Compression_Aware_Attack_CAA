@@ -44,7 +44,7 @@ def opt_adv_image_vanilla(
     l_patch_num=int(l_patch_num*v_token_num)
     save_clip_tensor_as_image(images.cpu(),'1.png')
     image_max=images.max()
-    if target_layer_idx>=model.config.num_hidden_layers:
+    if target_layer_idx>=model.config.num_hidden_layers or target_layer_idx==-1:
         target_layer_idx=model.config.num_hidden_layers-1
     
     torch.manual_seed(123)                   
@@ -89,7 +89,7 @@ def opt_adv_image_vanilla(
         )
 
         
-        if sparse_flag:
+        if sparse_flag and mask_layer>0:
             img_embs=ben_input_embeds[:, v_token_start:t_token_start]
             txt_embs=ben_input_embeds[:, t_token_start:]
             img_txt_inter = img_embs @ txt_embs.transpose(1, 2) # [1, 576, 53]
@@ -100,10 +100,15 @@ def opt_adv_image_vanilla(
             t_token_idx = torch.tensor([-1], device=device)
             t_idx_num=1
 
-        ben_logits = model.lm_head(ben_hidden_states_list_nc[target_layer_idx][:,-1])
+        if mask_layer is None or mask_layer<0:
+            top_layer=target_layer_idx
+        else:
+            top_layer=mask_layer
+
+        ben_logits = model.lm_head(ben_hidden_states_list_nc[top_layer][:,-1])
         ben_target = ben_logits.argmax(dim=1)
         
-        all_indices = torch.arange(ben_attn_score_list_nc[target_layer_idx].size(3), device=device)
+        all_indices = torch.arange(ben_attn_score_list_nc[top_layer].size(3), device=device)
 
         txt_mask = torch.zeros(t_token_num, dtype=torch.bool)
         txt_mask[t_token_idx] = True
@@ -114,18 +119,18 @@ def opt_adv_image_vanilla(
         t_token_idx = t_token_idx + t_token_start
         all_txt_mask[t_token_idx] = True
 
-        ben_attn_v_tar_mean = ben_attn_score_list_nc[target_layer_idx].mean(1)[0, all_txt_mask ,v_token_start:t_token_start].mean(0)
+        ben_attn_v_tar_mean = ben_attn_score_list_nc[top_layer].mean(1)[0, all_txt_mask ,v_token_start:t_token_start].mean(0)
         _, topk_v_tar  = torch.topk(ben_attn_v_tar_mean, k=v_token_num)
         topk_v_tar  = topk_v_tar+v_token_start
 
         most_mask   = torch.zeros_like(all_indices, dtype=torch.bool)
-        second_mask = torch.zeros_like(all_indices, dtype=torch.bool)
-        least_mask  = torch.zeros_like(all_indices, dtype=torch.bool)
+        # second_mask = torch.zeros_like(all_indices, dtype=torch.bool)
+        # least_mask  = torch.zeros_like(all_indices, dtype=torch.bool)
         most_patch_mask  = torch.zeros_like(all_indices, dtype=torch.bool)
-        least_patch_mask  = torch.zeros_like(all_indices, dtype=torch.bool)
-        most_mask[topk_v_tar[:most_num]] = True
-        second_mask[topk_v_tar[most_num:most_num+second_num]] = True
-        least_mask[topk_v_tar[most_num+second_num:]] = True
+        # least_patch_mask  = torch.zeros_like(all_indices, dtype=torch.bool)
+        # most_mask[topk_v_tar[:most_num]] = True
+        # second_mask[topk_v_tar[most_num:most_num+second_num]] = True
+        # least_mask[topk_v_tar[most_num+second_num:]] = True
         
         # if l_patch_num>0:
         #     least_patch_mask[topk_v_tar[-l_patch_num:-n_patch_num]] = True
@@ -145,7 +150,7 @@ def opt_adv_image_vanilla(
 
         if n_patch_num>0:
             most_patch_mask[topk_v_tar[:n_patch_num]] = True
-            most_mask[topk_v_tar[:n_patch_num]]  = False
+            most_mask[topk_v_tar[:n_patch_num]]  = True
             most_mask[t_token_start:] = True
             # second_mask[topk_v_tar[-n_patch_num:]] = False
             # least_mask[topk_v_tar[-n_patch_num:]] = False
@@ -180,7 +185,7 @@ def opt_adv_image_vanilla(
             start_idx=v_token_start, end_idx=t_token_start
         )
         loss_list, loss_dict=[], {}
-        if sparse_flag:
+        if sparse_flag and mask_layer>0:
             img_adv_embs=adv_input_embeds[:, v_token_start:t_token_start]
             txt_adv_embs=adv_input_embeds[:, t_token_start:]
             img_txt_inter = img_adv_embs @ txt_adv_embs.transpose(1, 2) # [1, 576, 53]
@@ -228,6 +233,16 @@ def opt_adv_image_vanilla(
             
             loss_list.append((loss_t)*1)
             loss_dict['CE_t']=round(loss_t.item(),2)
+        if mask_layer is not None and mask_layer>0:
+            attn_logits_nc = attn_logits_list_nc[mask_layer]
+            attn_logits_nc_mean = attn_logits_nc.mean(1)
+            attn_logits_nc_last = attn_logits_nc_mean[:,-1,:]
+            
+            most_logits=attn_logits_nc_last[:,:-t_token_num]
+            most_logits=attn_logits_nc_last[:,:-t_token_num]
+            loss_most=most_logits.mean()
+            loss_list.append(torch.relu(6-loss_most)*3)
+            loss_dict['most']=round(loss_most.item(),2)
         loss = torch.stack(loss_list).sum()
         
         if torch.isnan(loss):

@@ -170,12 +170,13 @@ def trace_transformer_layers_grad(
         hidden_states = residual + hidden_states
 
         
-        if most_mask is not None and mask_layer is not None:
+        if most_mask is not None and mask_layer is not None and mask_layer>0:
             if i+1==mask_layer:
                 hidden_states = hidden_states[:, most_mask]
                 # cos = position_embeddings[0][:, :, most_mask]
                 # sin = position_embeddings[1][:, :, most_mask]
                 # position_embeddings = (cos, sin)
+                (B, T, D)=hidden_states.shape
 
         if return_all:
             hidden_states_list.append(hidden_states)
@@ -328,6 +329,7 @@ def get_args(ArgsDefault):
     parser.add_argument('--most_flag', type=str, default=None)
     parser.add_argument('--stop_teps', type=float, default=None)
     parser.add_argument('--stop_ratio', type=float, default=None)
+    parser.add_argument('--mask_layer', type=int, default=None)
 
     args_cmd = parser.parse_args()
     # 默认参数
