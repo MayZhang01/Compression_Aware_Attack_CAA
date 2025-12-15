@@ -4,3 +4,4 @@ figs/*
 *.png
 *.pt
 tmp.sh
+*.pdf
