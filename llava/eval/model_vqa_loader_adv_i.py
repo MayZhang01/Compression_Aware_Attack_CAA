@@ -57,10 +57,10 @@ def eval_model(args, tokenizer, model, image_processor):
     model_class_name = type(model).__name__
 
     questions = [json.loads(q) for q in open(os.path.expanduser(args.question_file), "r")]
-    random.seed(124)
+    random.seed(160)
     random.shuffle(questions)
     q_start=0
-    questions = questions[q_start:57]
+    questions = questions[q_start:157]
     data_loader = create_data_loader(questions, args.image_folder, tokenizer, image_processor, model.config, conv_mode=args.conv_mode)
     
     try:
@@ -69,11 +69,13 @@ def eval_model(args, tokenizer, model, image_processor):
         most_flag=args.most_flag
         stop_teps=args.stop_teps
         stop_ratio=args.stop_ratio
+        ori_bound=args.ori_bound
     except:
-        w_bpr_l, w_bpr_p, w_dir_l, w_dir_p, w_bpr_lp = 20, 20, 10, 10, 10
-        w_ori_l, w_ori_p = -2, -2
+        w_bpr_l, w_bpr_p, w_dir_l, w_dir_p, w_bpr_lp = 20, 20, 5, 5, 10
+        w_ori_l, w_ori_p = 10, 10
         most_flag=False if args.atk=='ca' else True
         stop_teps, stop_ratio=80, 0.8
+        ori_bound=7
 
     if 'plain' in model_name and 'finetune' not in model_name.lower() and 'mmtag' not in args.conv_mode:
         args.conv_mode = args.conv_mode + '_mmtag'
@@ -140,9 +142,9 @@ def eval_model(args, tokenizer, model, image_processor):
                 w_bpr_l=w_bpr_l, w_bpr_p=w_bpr_p, w_dir_l=w_dir_l, w_dir_p=w_dir_p, w_bpr_lp=w_bpr_lp,
                 w_ori_l=w_ori_l, w_ori_p=w_ori_p,
                 stop_teps=stop_teps, stop_ratio=stop_ratio,
-                sparse_flag=sparse_flag
+                sparse_flag=sparse_flag, ori_bound=ori_bound
             )
-            adv_patch, adv_least=None, None
+            adv_patch, adv_least=torch.tensor([]), torch.tensor([])
         elif args.atk=="trf":
             adv_images, adv_input_embeds, adv_num, patch_inter_ratio, least_inter_ratio, adv_patch, adv_least=opt_adv_image_patch_transf(
                 model, new_input_embeds, attention_mask,
@@ -165,32 +167,7 @@ def eval_model(args, tokenizer, model, image_processor):
                 w_bpr_l=w_bpr_l, w_bpr_p=w_bpr_p, w_dir_l=w_dir_l, w_dir_p=w_dir_p, w_bpr_lp=w_bpr_lp,
                 w_ori_l=w_ori_l, w_ori_p=w_ori_p,
                 stop_teps=stop_teps, stop_ratio=stop_ratio,
-                sparse_flag=sparse_flag
-            )
-        elif args.atk=="trf_c":
-            
-            adv_images, adv_input_embeds, adv_num, patch_inter_ratio, least_inter_ratio, adv_patch, adv_least=opt_adv_image_patch_transf_comb(
-                model, new_input_embeds, attention_mask,
-                images=image_tensor.to(dtype=torch.float16, device='cuda', non_blocking=True), 
-                image_shape=576,        
-                # token_length_list=[new_input_embeds.shape[1]],  
-                pre_prompt_length_list=[torch.where(input_ids==-200)[1][0].item()], 
-                target_layer_idx=args.target_layer_idx, 
-                adv_steps=args.adv_steps, 
-                adv_lr=args.adv_lr,
-                epsilon=args.epsilon,
-                n_patch_num=args.n_patch_num,
-                l_patch_num=args.l_patch_num,
-                bpr_ths=args.bpr_ths,
-                image_size=args.image_size,
-                patch_size=args.patch_size,
-                logger=logger,
-                patch_or_noise=patch_or_noise,
-                most_flag=most_flag,
-                w_bpr_l=w_bpr_l, w_bpr_p=w_bpr_p, w_dir_l=w_dir_l, w_dir_p=w_dir_p, w_bpr_lp=w_bpr_lp,
-                w_ori_l=w_ori_l, w_ori_p=w_ori_p,
-                stop_teps=stop_teps, stop_ratio=stop_ratio,
-                sparse_flag=sparse_flag
+                sparse_flag=sparse_flag, ori_bound=ori_bound
             )
         elif args.atk=="vnl":
             target_label=get_target_label_from_gt(['Sorry', ' Sorry', 'sorry', ' sorry'], tokenizer, target_label=[])
@@ -226,7 +203,7 @@ def eval_model(args, tokenizer, model, image_processor):
                 mask_layer=args.mask_layer,
                 sparse_flag=sparse_flag
             )
-            adv_patch, adv_least=None, None
+            adv_patch, adv_least=torch.tensor([]), torch.tensor([])
 
         rlt={'patch_inter_ratio':patch_inter_ratio, 'least_inter_ratio':least_inter_ratio}
         try:
