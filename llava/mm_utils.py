@@ -199,6 +199,7 @@ def resize_tensor_image(img_tensor, size, mode='bilinear', align_corners=False):
     """
     if img_tensor.dim() == 3:
         img_tensor = img_tensor.unsqueeze(0)  # (1, C, H, W)
+    img_tensor = img_tensor.cuda()
     out = F.interpolate(img_tensor, size=size, mode=mode, align_corners=align_corners)
     return out.squeeze(0)
 

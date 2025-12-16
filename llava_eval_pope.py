@@ -5,6 +5,7 @@ from llava.model.builder import load_pretrained_model
 from llava.mm_utils import get_model_name_from_path
 from llava.eval.model_vqa_loader_adv_i import eval_model
 from llava.eval.model_vqa_loader_adv_i_transfer import eval_model as eval_model_trf
+from llava.eval.model_vqa_loader_adv_i_transfer_comb import eval_model as eval_model_trf_comb
 # import torch
 from llava.eval.find_adv_util import get_args
 
@@ -28,27 +29,30 @@ ArgsDefault = type('Args', (), {
     # "top_p":None,
     "num_beams":1,
     "max_new_tokens":3,
-    "layer_list":'[8, 16, 24]',
+    "layer_list":'[2]',
     "target_layer_idx":2, 
     "image_token_ratio_list":"[1, 0.7, 0.5, 0.3, 0.2, 0.1]",#
-    "adv_steps_list":"[0]",
+    "adv_steps_list":"[10]",
     "adv_lr":1,
     "cut_num":1,
-    "n_patch_num":1,
-    "l_patch_num":0,
-    "epsilon_list":"[0/255]",
+    "n_patch_num":0.15,
+    "l_patch_num":0.15,
+    "epsilon_list":"[64/255]",
     "bpr_ths":0.1,
     "image_size":336,
     "patch_size":14,
-    "atk":'vnl',
+    "atk":'trf',
     "patch_or_noise":False,
     "most_or_least":True,
-    "rlt_path":'',
     "re_scale":False,
     "most_flag":False,
     "w_bpr_l":20, "w_bpr_p":20, "w_dir_l":10, "w_dir_p":5, "w_bpr_lp":5,
     "w_ori_l":10, "w_ori_p":10,
     "stop_teps":40, "stop_ratio":0.8,
+    "rlt_path":'',
+    "adv_path":"['../qwen2vl_compress/saved_data/Qwen2.5-VL-7B-Instruct_qwen25_3b_7b_llava_pope_filter_rule1_adv_image_0.15_0.15_128_100_1.0_2_False_True_1_trf_True_57_True_20.0_20.0_5.0_5.0_10.0_1.0_1.0_80_0.8_False.pt', "
+    "'../token-compress-pyramid/saved_data/llava-v1.5-7b_qwen25_3b_7b_llava_pope_filter_rule1_adv_image_0.15_0.15_128_100_1.0_2_False_True_3_trf_True_57_True_20.0_20.0_5.0_5.0_10.0_1.0_1.0_40_0.8.pt']",
+    # "rlt_path": "../qwen2vl_compress/saved_data/Qwen2.5-VL-7B-Instruct_qwen25_3b_7b_llava_pope_filter_rule1_adv_image_0.15_0.15_128_80_1.0_2_False_True_1_trf_True_15_True_20_20_5.0_5.0_10.0_10.0_20.0_80_0.8_False.pt"
 })
 
 args = get_args(ArgsDefault)
@@ -72,5 +76,7 @@ for adv_steps in adv_steps_list:
         print(f"adv_steps: {adv_steps}, epsilon: {epsilon}")
         if len(args.rlt_path) > 0:
             eval_model_trf(args, tokenizer, model, image_processor)
+        elif len(args.adv_path) > 0:
+            eval_model_trf_comb(args, tokenizer, model, image_processor)
         else:
             eval_model(args, tokenizer, model, image_processor)

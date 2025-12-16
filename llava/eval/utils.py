@@ -274,3 +274,80 @@ def print_args(args, logger):
             key_dict[key]=value
     for key in key_dict:
         logger.print_log(f"{key}: {key_dict[key]}")
+
+
+def add_border(image, padding, value=0):
+    # image: [C, H, W]
+    C, H, W = image.shape
+    # padding = (pad_width, pad_width, pad_width, pad_width)  # (left, right, top, bottom)
+    # Add border to the image using constant padding
+    image_with_border = F.pad(image, padding, mode='constant', value=value)
+    # Create a border mask: 1 for border, 0 for original image
+    mask = torch.zeros((H, W), dtype=torch.uint8, device=image.device)
+    mask_padded = F.pad(mask, padding, mode='constant', value=1)  # 边框为1，原图为0
+    eps = 1e-2
+    zero_pos = (image_with_border.abs() < eps).any(dim=0)
+    mask_padded[zero_pos] = 1
+    return image_with_border, mask_padded
+
+def crop_and_resize_image(image, cut_loc, cut_size):
+    """
+    Crop a region from one of the four corners of the image and resize it back to the original size.
+    Args:
+        image: torch.Tensor, shape [C, H, W]
+        cut_loc: int, 0~3, 0=top-left, 1=top-right, 2=bottom-left, 3=bottom-right
+        cut_size: float, (0,1], the ratio of cropped region size to original size
+    Returns:
+        image_cropped_resized: torch.Tensor, shape [C, H, W]
+    """
+    if len(image.shape)==2:
+        image=image.unsqueeze(0).float()
+    C, H, W = image.shape
+    crop_h = int(H * cut_size)
+    crop_w = int(W * cut_size)
+    # Ensure at least 1 pixel
+    crop_h = max(1, crop_h)
+    crop_w = max(1, crop_w)
+
+    if cut_loc == 0:  # top-left
+        h_start, w_start = 0, 0
+    elif cut_loc == 1:  # top-right
+        h_start, w_start = 0, W - crop_w
+    elif cut_loc == 2:  # bottom-left
+        h_start, w_start = H - crop_h, 0
+    elif cut_loc == 3:  # bottom-right
+        h_start, w_start = H - crop_h, W - crop_w
+    else:
+        raise ValueError("cut_loc must be 0, 1, 2, or 3.")
+
+    h_end = h_start + crop_h
+    w_end = w_start + crop_w
+
+    cropped = image[:, h_start:h_end, w_start:w_end]
+    # Resize back to original size
+    cropped = cropped.unsqueeze(0)  # [1, C, crop_h, crop_w]
+    resized = F.interpolate(cropped, size=(H, W), mode='bilinear', align_corners=False)
+    return resized.squeeze(0)  # [C, H, W]
+
+
+from llava.constants import IMAGE_TOKEN_INDEX, DEFAULT_IMAGE_TOKEN, DEFAULT_IM_START_TOKEN, DEFAULT_IM_END_TOKEN
+from llava.mm_utils import tokenizer_image_token, process_images
+def process_input(text, image_tensor, tokenizer, image_processor, model_config, conv_mode):
+    if model_config.mm_use_im_start_end:
+        qs = DEFAULT_IM_START_TOKEN + DEFAULT_IMAGE_TOKEN + DEFAULT_IM_END_TOKEN + '\n' + text
+    else:
+        qs = DEFAULT_IMAGE_TOKEN + '\n' + text
+
+    conv = conv_mode.copy()
+    conv.append_message(conv.roles[0], qs)
+    conv.append_message(conv.roles[1], None)
+    prompt = conv.get_prompt()
+
+    if len(image_tensor.shape)==3:
+        image_tensor = image_tensor.unsqueeze(0)
+    image_tensor = process_images(image_tensor, image_processor, model_config)
+    image_sizes=image_tensor.size
+    
+    input_ids = tokenizer_image_token(prompt, tokenizer, IMAGE_TOKEN_INDEX, return_tensors='pt')
+    input_ids = input_ids.unsqueeze(0).to(device='cuda')
+    return input_ids, image_tensor, image_sizes
