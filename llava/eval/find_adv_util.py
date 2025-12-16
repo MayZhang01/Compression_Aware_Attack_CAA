@@ -318,7 +318,7 @@ def get_args(ArgsDefault):
     parser.add_argument('--atk', type=str, default=None)
     parser.add_argument('--patch_or_noise', type=str, default=None)
     parser.add_argument('--most_or_least', type=str, default=None)
-    parser.add_argument('--rlt_path', type=str, default='')
+    parser.add_argument('--rlt_path', type=str, default=None)
     parser.add_argument('--w_bpr_l', type=float, default=None)
     parser.add_argument('--w_bpr_p', type=float, default=None)
     parser.add_argument('--w_dir_l', type=float, default=None)
@@ -330,6 +330,7 @@ def get_args(ArgsDefault):
     parser.add_argument('--stop_teps', type=float, default=None)
     parser.add_argument('--stop_ratio', type=float, default=None)
     parser.add_argument('--mask_layer', type=int, default=None)
+    parser.add_argument('--adv_path', type=str, default=None)
 
     args_cmd = parser.parse_args()
     # 默认参数
@@ -344,3 +345,50 @@ def get_args(ArgsDefault):
                 v = False
             setattr(args, k, v)
     return args
+
+
+@torch.no_grad()
+def get_max_min_Q(x, attn, dtype=torch.float16):
+    q_proj, k_proj = attn.q_proj, attn.k_proj
+
+    # 1) 得到等效浮点权重（无论是否量化/LoRA，都数值等价于模块前向）
+    W_Q = effective_weight(q_proj)    # (out_q, in)
+    W_K = effective_weight(k_proj)    # (out_k, in)
+    # b_Q = q_proj.bias if q_proj.bias is not None else 0
+    # b_K = k_proj.bias if k_proj.bias is not None else 0
+
+    # 2) 计算 q 向量并去掉 bias
+    # 注意：等价于 q_proj(x) - b_Q
+    q = x @ W_Q.T                     # (out_q,)
+
+    # # 3) 若 q 与 k 维度不一致（GQA），做组均值到 kv 维度
+    # num_heads = attn.num_heads
+    # num_kv_heads = attn.num_key_value_heads
+    # head_dim = q.shape[0] // num_heads
+    # if num_heads != num_kv_heads:
+    #     g = num_heads // num_kv_heads
+    #     q_heads = q.view(num_heads, head_dim)                  # (H, d)
+    #     q_kv = q_heads.view(num_kv_heads, g, head_dim).mean(1) # (Kv, d)
+    #     q_target = q_kv.reshape(-1)                            # (out_k,)
+    # else:
+    #     q_target = q                                           # (out_k,)
+    
+    # 前置：已得到 q_target (即你的 q_target / q_kv) 以及等效 W_K
+    Wf = W_K.to(torch.float32)               # (out_k, in)
+    qf = q.to(torch.float32)          # (out_k,)
+
+    v_dir_max = Wf.T @ qf.T                        # (in,)
+    v_max = v_dir_max / (v_dir_max.norm() + 1e-12)       # 方向对齐；若想更大logit，可再乘一个标量α（非Pre-Norm时）
+    v_max = v_max.to(dtype)   
+
+    # 让打分最小：取反方向
+    v_dir_min = -(Wf.T @ qf.T )                    # (in,)
+    v_min = v_dir_min / (v_dir_min.norm() + 1e-12)
+    v_min = v_min.to(dtype)
+    
+    # # 最小二乘
+    # Wf   = W_K.to(torch.float32)                 # (out_k, in)
+    # rhsB = (q_target - b_K).to(torch.float32).unsqueeze(-1)  # (out_k, 1)
+    # v = torch.linalg.lstsq(Wf, rhsB).solution.squeeze(-1)    # (in,)
+    # v = v.to(W_K.dtype)                      # (in,)
+    return v_max, v_min
