@@ -57,9 +57,9 @@ def eval_model(args, tokenizer, model, image_processor):
     model_class_name = type(model).__name__
 
     questions = [json.loads(q) for q in open(os.path.expanduser(args.question_file), "r")]
-    random.seed(160)
+    random.seed(124)
     random.shuffle(questions)
-    q_start=0
+    q_start=44
     questions = questions[q_start:157]
     data_loader = create_data_loader(questions, args.image_folder, tokenizer, image_processor, model.config, conv_mode=args.conv_mode)
     
@@ -240,7 +240,7 @@ def eval_model(args, tokenizer, model, image_processor):
         
         logger.print_log(idx, ':', cur_prompt.replace('\n', ' '))
         logger.print_log(counter.total+q_start, ':', rlt)
-        if counter.total%20==0 and counter.total>0:
+        if counter.total%19==0 and counter.total>0:
             metric=counter.get_metric(logger=logger)
             # if metric['0.2']['ACC']>0.5:
             #     break
