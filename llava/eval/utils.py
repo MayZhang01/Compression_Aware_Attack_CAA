@@ -351,3 +351,21 @@ def process_input(text, image_tensor, tokenizer, image_processor, model_config, 
     input_ids = tokenizer_image_token(prompt, tokenizer, IMAGE_TOKEN_INDEX, return_tensors='pt')
     input_ids = input_ids.unsqueeze(0).to(device='cuda')
     return input_ids, image_tensor, image_sizes
+
+def get_arg_or_default(args, para_name):
+    default_params = {
+        'w_bpr_l': 20,
+        'w_bpr_p': 20,
+        'w_bpr_lp': 10,
+        'w_dir_l': 5,
+        'w_dir_p': 5,
+        'w_ori_l': 10,
+        'w_ori_p': 10,
+        'most_flag': False if args.atk=='ca' else True,
+        'stop_teps': 80,
+        'stop_ratio': 0.8,
+        'ori_bound': 7
+    }
+    if hasattr(args, para_name):
+        return getattr(args, para_name)
+    return default_params[para_name]

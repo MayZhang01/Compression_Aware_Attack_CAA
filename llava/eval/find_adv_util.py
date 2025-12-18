@@ -332,6 +332,7 @@ def get_args(ArgsDefault):
     parser.add_argument('--mask_layer', type=int, default=None)
     parser.add_argument('--adv_path', type=str, default=None)
     parser.add_argument('--ori_bound', type=int, default=None)
+    parser.add_argument('--res_file', type=str, default=None)
 
     args_cmd = parser.parse_args()
     # 默认参数

@@ -50,6 +50,7 @@ ArgsDefault = type('Args', (), {
     "w_ori_l":10, "w_ori_p":10,
     "stop_teps":40, "stop_ratio":0.8,
     "rlt_path":'', "ori_bound": 7,
+    "adv_path":'',
     # "adv_path":"['../qwen2vl_compress/saved_data/Qwen2.5-VL-7B-Instruct_qwen25_3b_7b_llava_pope_filter_rule1_adv_image_0.15_0.15_128_100_1.0_2_False_True_1_trf_True_57_True_20.0_20.0_5.0_5.0_10.0_1.0_1.0_80_0.8_False.pt', "
     # "'../token-compress-pyramid/saved_data/llava-v1.5-7b_qwen25_3b_7b_llava_pope_filter_rule1_adv_image_0.15_0.15_128_100_1.0_2_False_True_3_trf_True_57_True_20.0_20.0_5.0_5.0_10.0_1.0_1.0_40_0.8.pt']",
     # "rlt_path": "../qwen2vl_compress/saved_data/Qwen2.5-VL-7B-Instruct_qwen25_3b_7b_llava_pope_filter_rule1_adv_image_0.15_0.15_128_80_1.0_2_False_True_1_trf_True_15_True_20_20_5.0_5.0_10.0_10.0_20.0_80_0.8_False.pt"

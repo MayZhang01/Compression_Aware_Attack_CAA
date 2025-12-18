@@ -197,8 +197,9 @@ class Counter:
                 self.rej[key]+=1
             elif (judge_adv(rlt[key], 'Yes') or judge_adv(rlt[key], 'No'))==False:
                 self.nonsense[key]+=1
-        self.least_inter_ratio.append(rlt['least_inter_ratio'])
-        self.patch_inter_ratio.append(rlt['patch_inter_ratio'])
+        if 'least_inter_ratio' in rlt:
+            self.least_inter_ratio.append(rlt['least_inter_ratio'])
+            self.patch_inter_ratio.append(rlt['patch_inter_ratio'])
 
 
 def collate_fn(batch):

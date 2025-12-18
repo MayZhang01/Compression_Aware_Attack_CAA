@@ -19,7 +19,7 @@ import random
 from llava.eval.find_adv_patch import opt_adv_image_patch
 from llava.eval.find_adv_trf import opt_adv_image_patch_transf
 from llava.eval.find_adv_trf_comb import opt_adv_image_patch_transf_comb
-from llava.eval.utils import Logger, extract_name_from_path, print_args
+from llava.eval.utils import Logger, extract_name_from_path, print_args, get_arg_or_default
 from llava.eval.find_adv_util import judge_adv
 import numpy as np
 from llava.eval.m4c_evaluator import TextVQAAccuracyEvaluator
@@ -62,20 +62,18 @@ def eval_model(args, tokenizer, model, image_processor):
     q_start=44
     questions = questions[q_start:157]
     data_loader = create_data_loader(questions, args.image_folder, tokenizer, image_processor, model.config, conv_mode=args.conv_mode)
-    
-    try:
-        w_bpr_l, w_bpr_p, w_dir_l, w_dir_p, w_bpr_lp = args.w_bpr_l, args.w_bpr_p, args.w_dir_l, args.w_dir_p, args.w_bpr_lp
-        w_ori_l, w_ori_p = args.w_ori_l, args.w_ori_p
-        most_flag=args.most_flag
-        stop_teps=args.stop_teps
-        stop_ratio=args.stop_ratio
-        ori_bound=args.ori_bound
-    except:
-        w_bpr_l, w_bpr_p, w_dir_l, w_dir_p, w_bpr_lp = 20, 20, 5, 5, 10
-        w_ori_l, w_ori_p = 10, 10
-        most_flag=False if args.atk=='ca' else True
-        stop_teps, stop_ratio=80, 0.8
-        ori_bound=7
+
+    w_bpr_l = get_arg_or_default(args, 'w_bpr_l')
+    w_bpr_p = get_arg_or_default(args, 'w_bpr_p')
+    w_bpr_lp = get_arg_or_default(args, 'w_bpr_lp')
+    w_dir_l = get_arg_or_default(args, 'w_dir_l')
+    w_dir_p = get_arg_or_default(args, 'w_dir_p')
+    w_ori_l = get_arg_or_default(args, 'w_ori_l')
+    w_ori_p = get_arg_or_default(args, 'w_ori_p')
+    stop_teps = get_arg_or_default(args, 'stop_teps')
+    stop_ratio = get_arg_or_default(args, 'stop_ratio')
+    ori_bound = get_arg_or_default(args, 'ori_bound')
+    most_flag = get_arg_or_default(args, 'most_flag')
 
     if 'plain' in model_name and 'finetune' not in model_name.lower() and 'mmtag' not in args.conv_mode:
         args.conv_mode = args.conv_mode + '_mmtag'
@@ -281,7 +279,7 @@ def eval_model(args, tokenizer, model, image_processor):
         str(w_dir_l), str(w_dir_p),
         str(w_bpr_lp),
         str(w_ori_l), str(w_ori_p),
-        str(stop_teps), str(stop_ratio),
+        str(stop_teps), str(stop_ratio), str(sparse_flag)
     ])+'.pt'
     if args.adv_steps>0:
         torch.save(adv_data_dict, data_path)
