@@ -75,31 +75,30 @@ class Counter_acc:
         self.total=0
         self.evaluator=evaluator
         for cp in cp_list:
-            self.score[str(cp)]=0
-            self.rej[str(cp)]=0
-            self.nonsense[str(cp)]=0
+            self.add_key(str(cp))
+            # self.score[str(cp)]=0
+            # self.rej[str(cp)]=0
+            # self.nonsense[str(cp)]=0
+    
+    def add_key(self, key):
+        self.score[key]=0
+        self.rej[key]=0
+        self.nonsense[key]=0
     
     def add_rlt(self, gt, rlt):
         self.total+=1
         for key in rlt:
             if key in ['least_inter_ratio', 'patch_inter_ratio']:
                 continue
+            if key not in self.score:
+                self.add_key(key)
             tmp_s=self.evaluator.eval_pred_per_sample(rlt[key], gt)
             self.score[key]+=tmp_s
             rlt[key]=(tmp_s, rlt[key], )
                 
-        # for key in rlt:
-        #     if key in ['least_inter_ratio', 'patch_inter_ratio']:
-        #         continue
-        #     if key=='ori':
-        #         continue
-
-        #     if rlt[key]=='':
-        #         self.rej[key]+=1
-        #     elif (judge_adv(rlt[key], 'Yes') or judge_adv(rlt[key], 'No'))==False:
-        #         self.nonsense[key]+=1
-        self.least_inter_ratio.append(rlt['least_inter_ratio'])
-        self.patch_inter_ratio.append(rlt['patch_inter_ratio'])
+        if 'least_inter_ratio' in rlt:
+            self.least_inter_ratio.append(rlt['least_inter_ratio'])
+            self.patch_inter_ratio.append(rlt['patch_inter_ratio'])
         return rlt
     
     def get_metric(self, logger=None):
@@ -108,9 +107,7 @@ class Counter_acc:
         for key in self.score:
             metric[key]={}
             metric[key]['ACC']=round(self.score[key]/self.total,4)
-            # if key !='ori':
-            #     metric[key]['Rej']=round((self.rej[key])/total,4)
-            #     metric[key]['Nos']=round((self.nonsense[key])/total,4)
+            
         if logger is not None:
             logger.print_log('', '\t'.join(m for m in m_list))
             logger.print_log('least_inter_ratio', np.mean(self.least_inter_ratio))
@@ -126,12 +123,14 @@ class Counter:
         self.rej, self.nonsense={}, {}
         self.total=0
         for cp in cp_list:
-            self.TP[str(cp)]=0
-            self.FP[str(cp)]=0
-            self.TN[str(cp)]=0
-            self.FN[str(cp)]=0
-            self.rej[str(cp)]=0
-            self.nonsense[str(cp)]=0
+            self.add_key(str(cp))
+            # self.TP[str(cp)]=0
+            # self.FP[str(cp)]=0
+            # self.TN[str(cp)]=0
+            # self.FN[str(cp)]=0
+            # self.rej[str(cp)]=0
+            # self.nonsense[str(cp)]=0
+    
     def get_metric(self, logger=None):
         metric={}
         m_list=["TPR", "FNR","TNR", "FPR", "ACC", "Rej", "Nos"]
@@ -192,11 +191,11 @@ class Counter:
                 continue
             if key=='ori':
                 continue
-
             if rlt[key]=='':
                 self.rej[key]+=1
             elif (judge_adv(rlt[key], 'Yes') or judge_adv(rlt[key], 'No'))==False:
                 self.nonsense[key]+=1
+        
         if 'least_inter_ratio' in rlt:
             self.least_inter_ratio.append(rlt['least_inter_ratio'])
             self.patch_inter_ratio.append(rlt['patch_inter_ratio'])
