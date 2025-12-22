@@ -28,7 +28,8 @@ ArgsDefault = type('Args', (), {
 
 args = get_args(ArgsDefault)
 layer_list=[
-    [2], [4], [6], [8]
+    [2], [4], [6], [8],
+    [1],[10],[12]
     # [8,16,24],
     # [2,6,15]
 ]

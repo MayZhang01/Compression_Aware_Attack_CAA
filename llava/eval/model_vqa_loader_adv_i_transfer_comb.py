@@ -22,7 +22,9 @@ from llava.eval.model_vqa_loader_adv_i import get_chunk, create_data_loader, Cou
 
 def eval_model(args, tokenizer, model, image_processor):
     most_or_least=getattr(args, 'most_or_least', True)
-    logger=Logger()
+    dataset_name=extract_name_from_path(args.adv_path)
+    dir_name=dataset_name
+    logger=Logger(dir_name=dir_name)
     logger.print_log('from transfer')
     print_args(args, logger)
 
@@ -100,8 +102,8 @@ def eval_model(args, tokenizer, model, image_processor):
                 adv_output_ids = model.generate(
                     input_ids,
                     images=adv_image.to(dtype=torch.float16, device='cuda', non_blocking=True),
-                    image_sizes=image_sizes,
                     do_sample=True if args.temperature > 0 else False,
+                    # image_sizes=image_sizes,
                     # temperature=args.temperature,
                     # top_p=args.top_p,
                     num_beams=args.num_beams,

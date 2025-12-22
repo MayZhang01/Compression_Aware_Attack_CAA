@@ -18,7 +18,7 @@ import random
 # from llava.eval.find_adv import opt_adv_pro, opt_adv_image_token, opt_adv_image_text_pro
 from llava.eval.find_adv_patch import opt_adv_image_patch
 from llava.eval.find_adv_trf import opt_adv_image_patch_transf
-from llava.eval.find_adv_trf_comb import opt_adv_image_patch_transf_comb
+from llava.eval.find_adv_most import opt_adv_image_most
 from llava.eval.utils import Logger, extract_name_from_path, print_args, get_arg_or_default
 from llava.eval.find_adv_util import judge_adv
 import numpy as np
@@ -143,7 +143,7 @@ def eval_model(args, tokenizer, model, image_processor):
                 sparse_flag=sparse_flag, ori_bound=ori_bound
             )
             adv_patch, adv_least=torch.tensor([]), torch.tensor([])
-        elif args.atk=="trf":
+        elif "trf" in args.atk:
             adv_images, adv_input_embeds, adv_num, patch_inter_ratio, least_inter_ratio, adv_patch, adv_least=opt_adv_image_patch_transf(
                 model, new_input_embeds, attention_mask,
                 images=image_tensor.to(dtype=torch.float16, device='cuda', non_blocking=True), 
@@ -165,7 +165,9 @@ def eval_model(args, tokenizer, model, image_processor):
                 w_bpr_l=w_bpr_l, w_bpr_p=w_bpr_p, w_dir_l=w_dir_l, w_dir_p=w_dir_p, w_bpr_lp=w_bpr_lp,
                 w_ori_l=w_ori_l, w_ori_p=w_ori_p,
                 stop_teps=stop_teps, stop_ratio=stop_ratio,
-                sparse_flag=sparse_flag, ori_bound=ori_bound
+                sparse_flag=sparse_flag, ori_bound=ori_bound,
+                atk_name=args.atk,
+
             )
         elif args.atk=="vnl":
             target_label=get_target_label_from_gt(['Sorry', ' Sorry', 'sorry', ' sorry'], tokenizer, target_label=[])
@@ -202,6 +204,30 @@ def eval_model(args, tokenizer, model, image_processor):
                 sparse_flag=sparse_flag
             )
             adv_patch, adv_least=torch.tensor([]), torch.tensor([])
+        elif args.atk=="most":
+            adv_images, adv_input_embeds, adv_num, patch_inter_ratio, least_inter_ratio=opt_adv_image_most(
+                model, new_input_embeds, attention_mask,
+                images=image_tensor.to(dtype=torch.float16, device='cuda', non_blocking=True), 
+                image_shape=576,        
+                # token_length_list=[new_input_embeds.shape[1]],  
+                pre_prompt_length_list=[torch.where(input_ids==-200)[1][0].item()], 
+                target_layer_idx=args.target_layer_idx, 
+                adv_steps=args.adv_steps, 
+                adv_lr=args.adv_lr,
+                epsilon=args.epsilon,
+                n_patch_num=args.n_patch_num,
+                l_patch_num=args.l_patch_num,
+                bpr_ths=args.bpr_ths,
+                image_size=args.image_size,
+                patch_size=args.patch_size,
+                logger=logger,
+                patch_or_noise=patch_or_noise,
+                most_flag=most_flag,
+                w_bpr=w_bpr_l, w_dir=w_dir_l,
+                w_ori=w_ori_l,
+                sparse_flag=sparse_flag, ori_bound=ori_bound,
+            )
+            adv_patch, adv_least=torch.tensor([]), torch.tensor([])
 
         rlt={'patch_inter_ratio':patch_inter_ratio, 'least_inter_ratio':least_inter_ratio}
         try:
@@ -215,8 +241,8 @@ def eval_model(args, tokenizer, model, image_processor):
                     model.model.prompt_len[0]=ori_prompt_len+adv_num
                     adv_output_ids = model.generate(
                         inputs_embeds=adv_input_embeds,
-                        image_sizes=image_sizes,
                         do_sample=True if args.temperature > 0 else False,
+                        # image_sizes=image_sizes,
                         # temperature=args.temperature,
                         # top_p=args.top_p,
                         num_beams=args.num_beams,

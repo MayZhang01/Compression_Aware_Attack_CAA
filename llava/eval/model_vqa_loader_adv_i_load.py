@@ -64,11 +64,6 @@ def eval_model(args, tokenizer, model, image_processor):
     
     layer_list=args.layer_list
     cp_list=eval(args.image_token_ratio_list)
-    # if layer_list==[2,6,15]:
-    #     sparse_flag=True
-    # else:
-    #     sparse_flag=False
-
 
     if 'vqa' in args.res_file:
         evaluator = TextVQAAccuracyEvaluator()
@@ -101,43 +96,46 @@ def eval_model(args, tokenizer, model, image_processor):
         
 
         rlt={}
-        for cp in cp_list:
-            with torch.inference_mode():
-                if model_class_name == "LlavaLlamaForCausalLM_PDrop":
-                    model.model.image_token_ratio_list = [cp]
-                    model.model.image_token_ratio_list.insert(0, 1.0)
-                adv_output_ids = model.generate(
-                    inputs_embeds=adv_input_embeds,
-                    do_sample=True if args.temperature > 0 else False,
-                    num_beams=args.num_beams,
-                    max_new_tokens=args.max_new_tokens,
-                    use_cache=True
-                    # image_sizes=image_sizes,
-                    # temperature=args.temperature,
-                    # top_p=args.top_p,
-                )
-            adv_outputs = tokenizer.batch_decode(adv_output_ids, skip_special_tokens=True)[0].strip()
-            rlt[str(cp)]=adv_outputs
         
         if benign_flag:
-            with torch.inference_mode():
-                if model_class_name == "LlavaLlamaForCausalLM_PDrop":
-                    model.model.layer_list = layer_list
-                    model.model.image_token_ratio_list = [1]
-                    model.model.image_token_ratio_list.insert(0, 1.0)
-                    model.model.most_or_least=most_or_least
-                model.model.prompt_len[0]=ori_prompt_len
-                raw_output_ids = model.generate(
-                    inputs_embeds=raw_input_embeds,
-                    do_sample=True if args.temperature > 0 else False,
-                    num_beams=args.num_beams,
-                    max_new_tokens=args.max_new_tokens,
-                    use_cache=True
-                    # temperature=args.temperature,
-                    # top_p=args.top_p,
-                )
-            raw_outputs = tokenizer.batch_decode(raw_output_ids, skip_special_tokens=True)[0].strip()
-            rlt['ben']=raw_outputs
+            for cp in cp_list:
+                with torch.inference_mode():
+                    if model_class_name == "LlavaLlamaForCausalLM_PDrop":
+                        model.model.layer_list = layer_list
+                        model.model.image_token_ratio_list = [cp]
+                        model.model.image_token_ratio_list.insert(0, 1.0)
+                        model.model.most_or_least=most_or_least
+                    model.model.prompt_len[0]=ori_prompt_len
+                    raw_output_ids = model.generate(
+                        inputs_embeds=raw_input_embeds,
+                        do_sample=True if args.temperature > 0 else False,
+                        num_beams=args.num_beams,
+                        max_new_tokens=args.max_new_tokens,
+                        use_cache=True
+                        # temperature=args.temperature,
+                        # top_p=args.top_p,
+                    )
+                raw_outputs = tokenizer.batch_decode(raw_output_ids, skip_special_tokens=True)[0].strip()
+                rlt['ben_' + str(cp)]=raw_outputs
+        
+        else:
+            for cp in cp_list:
+                with torch.inference_mode():
+                    if model_class_name == "LlavaLlamaForCausalLM_PDrop":
+                        model.model.image_token_ratio_list = [cp]
+                        model.model.image_token_ratio_list.insert(0, 1.0)
+                    adv_output_ids = model.generate(
+                        inputs_embeds=adv_input_embeds,
+                        do_sample=True if args.temperature > 0 else False,
+                        num_beams=args.num_beams,
+                        max_new_tokens=args.max_new_tokens,
+                        use_cache=True
+                        # image_sizes=image_sizes,
+                        # temperature=args.temperature,
+                        # top_p=args.top_p,
+                    )
+                adv_outputs = tokenizer.batch_decode(adv_output_ids, skip_special_tokens=True)[0].strip()
+                rlt[str(cp)]=adv_outputs
 
         if 'vqa' in args.res_file:
             rlt=counter.add_rlt(gt=gt, rlt=rlt)

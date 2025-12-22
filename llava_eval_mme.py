@@ -5,6 +5,7 @@ from llava.model.builder import load_pretrained_model
 from llava.mm_utils import get_model_name_from_path
 from llava.eval.model_vqa_loader_adv_i import eval_model
 from llava.eval.model_vqa_loader_adv_i_transfer import eval_model as eval_model_trf
+from llava.eval.model_vqa_loader_adv_i_transfer_comb import eval_model as eval_model_trf_comb
 # import torch
 from llava.eval.find_adv_util import get_args
 
@@ -49,6 +50,7 @@ ArgsDefault = type('Args', (), {
     "w_bpr_l":20, "w_bpr_p":20, "w_dir_l":5, "w_dir_p":5, "w_bpr_lp":10,
     "w_ori_l":10, "w_ori_p":10,
     "stop_teps":40, "stop_ratio":0.8,
+    "adv_path":'', "rlt_path":'', 
 })
 
 args = get_args(ArgsDefault)
@@ -72,5 +74,7 @@ for adv_steps in adv_steps_list:
         print(f"adv_steps: {adv_steps}, epsilon: {epsilon}")
         if len(args.rlt_path) > 0:
             eval_model_trf(args, tokenizer, model, image_processor)
+        elif len(args.adv_path) > 0:
+            eval_model_trf_comb(args, tokenizer, model, image_processor)
         else:
             eval_model(args, tokenizer, model, image_processor)

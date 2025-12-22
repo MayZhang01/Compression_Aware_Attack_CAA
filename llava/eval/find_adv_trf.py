@@ -34,6 +34,7 @@ def opt_adv_image_patch_transf(
     w_ori_l=-2, w_ori_p=-2,
     ori_bound=2, sparse_flag=False, 
     stop_teps=80, stop_ratio=0.5,
+    atk_name='trf',
 ):
 
     device = input_embeds.device
@@ -567,8 +568,9 @@ def opt_adv_image_patch_transf(
         tmp_adv_least = tmp_adv_least.repeat(1,grid_h,1,grid_w,1)
         tmp_adv_least = tmp_adv_least.reshape(channel, grid_h*patch_size, grid_w*patch_size)
         
+        # if 'least' in atk_name:
         adv_image = image_with_border.clone() + tmp_adv_least*mask_padded#*epsilon
-        adv_image = adv_image + torch.randn_like(image_with_border)*image_with_border.std()*mask_padded*0.1#*epsilon
+        # adv_image = adv_image + torch.randn_like(image_with_border)*image_with_border.std()*mask_padded*0.1#*epsilon
         # adv_image = adv_image + tmp_adv_patch*(1-mask_padded)*0.2
         # adv_image = torch.clamp(adv_image, -image_max*1.1, image_max*1.1)
         # adv_image_tensor = image2tensor(adv_image, grid_h, grid_w, patch_size=patch_size) 

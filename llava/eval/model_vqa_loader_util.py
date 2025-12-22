@@ -69,13 +69,13 @@ class CustomDataset(Dataset):
         return len(self.questions)
 class Counter_acc:
     def __init__(self, cp_list=[], evaluator=None):
-        self.score={'ori':0}
+        self.score={}#{'ori':0}
         self.least_inter_ratio, self.patch_inter_ratio=[],[]
         self.rej, self.nonsense={}, {}
         self.total=0
         self.evaluator=evaluator
-        for cp in cp_list:
-            self.add_key(str(cp))
+        # for cp in cp_list:
+        #     self.add_key(str(cp))
             # self.score[str(cp)]=0
             # self.rej[str(cp)]=0
             # self.nonsense[str(cp)]=0
@@ -110,20 +110,24 @@ class Counter_acc:
             
         if logger is not None:
             logger.print_log('', '\t'.join(m for m in m_list))
-            logger.print_log('least_inter_ratio', np.mean(self.least_inter_ratio))
-            logger.print_log('patch_inter_ratio', np.mean(self.patch_inter_ratio))
+            try:
+                logger.print_log('least_inter_ratio', np.mean(self.least_inter_ratio))
+                logger.print_log('patch_inter_ratio', np.mean(self.patch_inter_ratio))
+            except:
+                pass
             for key in metric:
                 logger.print_log(key,  metric[key]['ACC'])
         return metric
 
 class Counter:
     def __init__(self, cp_list=[]):
-        self.TP, self.FP, self.TN, self.FN={'ori':0}, {'ori':0}, {'ori':0}, {'ori':0}
+        # self.TP, self.FP, self.TN, self.FN={'ori':0}, {'ori':0}, {'ori':0}, {'ori':0}
+        self.TP, self.FP, self.TN, self.FN={}, {}, {}, {}
         self.least_inter_ratio, self.patch_inter_ratio=[],[]
         self.rej, self.nonsense={}, {}
         self.total=0
-        for cp in cp_list:
-            self.add_key(str(cp))
+        # for cp in cp_list:
+        #     self.add_key(str(cp))
             # self.TP[str(cp)]=0
             # self.FP[str(cp)]=0
             # self.TN[str(cp)]=0
@@ -147,8 +151,11 @@ class Counter:
                 metric[key]['Nos']=round((self.nonsense[key])/(total+1e-8),4)
         if logger is not None:
             logger.print_log('', '\t'.join(m for m in m_list))
-            logger.print_log('least_inter_ratio', np.mean(self.least_inter_ratio))
-            logger.print_log('patch_inter_ratio', np.mean(self.patch_inter_ratio))
+            try:
+                logger.print_log('least_inter_ratio', np.mean(self.least_inter_ratio))
+                logger.print_log('patch_inter_ratio', np.mean(self.patch_inter_ratio))
+            except:
+                pass
             for key in metric:
                 if key =='ori':
                     logger.print_log(key, metric[key]['TPR'], metric[key]['FNR'], metric[key]['TNR'], metric[key]['FPR'], metric[key]['ACC'])
