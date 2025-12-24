@@ -85,7 +85,7 @@ def opt_adv_image_patch_transf(
         adv_patch.requires_grad_(True)
         adv_least.requires_grad_(True)
         optimizer = torch.optim.SGD([adv_patch, adv_least], lr=adv_lr)
-        scheduler = StepLR(optimizer, step_size=20, gamma=0.5)
+        scheduler = StepLR(optimizer, step_size=10, gamma=0.5)
 
     # grid_h=grid_h+border_t+border_b
     # grid_w=grid_w+border_l+border_r
@@ -280,7 +280,8 @@ def opt_adv_image_patch_transf(
         update_flag=True
     last_adv_patch=torch.zeros_like(adv_patch)
     last_adv_least=torch.zeros_like(adv_least)
-    tmp_r_adv_image = image_with_border.clone() #+ torch.randn_like(image_with_border)*image_with_border.std()*mask_padded*0.5
+    # tmp_r_adv_image = image_with_border.clone() #+ torch.randn_like(image_with_border)*image_with_border.std()*mask_padded*0.5
+    tmp_r_adv_image = ben_image.clone() 
     tmp_r_adv_image = torch.clamp(tmp_r_adv_image, -image_max*1.1, image_max*1.1)
     for step in range(adv_steps):
         tmp_adv_patch = adv_patch.reshape(channel, 1, patch_size, 1, patch_size)
@@ -290,7 +291,7 @@ def opt_adv_image_patch_transf(
         tmp_adv_least = tmp_adv_least.repeat(1,grid_h,1,grid_w,1)
         tmp_adv_least = tmp_adv_least.reshape(channel, grid_h*patch_size, grid_w*patch_size)
         adv_image = tmp_r_adv_image.clone().detach() 
-        adv_image = adv_image + torch.randn_like(image_with_border)*image_with_border.std()*0.1#*(1-mask_padded)
+        # adv_image = adv_image + torch.randn_like(image_with_border)*image_with_border.std()*0.1#*(1-mask_padded)
         adv_images = [
             crop_and_resize_image(adv_image, cut_loc=cut_loc, cut_size=cut_size)
             for (cut_loc, cut_size) in cut_figs
