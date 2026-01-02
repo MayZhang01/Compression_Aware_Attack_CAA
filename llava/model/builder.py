@@ -118,7 +118,8 @@ def load_pretrained_model(model_path, model_base, model_name, pdrop_infer=False,
                 model = LlavaLlamaForCausalLM_PDrop.from_pretrained(
                     model_path,
                     device_map=None,
-                    # low_cpu_mem_usage=True,
+                    low_cpu_mem_usage=True,
+                    # low_cpu_mem_usage=False,
                     **kwargs
                 )
             else:

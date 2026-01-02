@@ -351,7 +351,7 @@ def get_args(ArgsDefault):
 
 
 @torch.no_grad()
-def get_max_min_Q(x, attn, dtype=torch.float16):
+def get_max_min_Q(x, attn, t_idx_num, dtype=torch.float16):
     q_proj, k_proj = attn.q_proj, attn.k_proj
 
     # 1) 得到等效浮点权重（无论是否量化/LoRA，都数值等价于模块前向）
@@ -380,12 +380,12 @@ def get_max_min_Q(x, attn, dtype=torch.float16):
     Wf = W_K.to(torch.float32)               # (out_k, in)
     qf = q.to(torch.float32)          # (out_k,)
 
-    v_dir_max = Wf.T @ qf.T                        # (in,)
+    v_dir_max = (Wf.T @ qf.T).mean(1)                      # (in,)
     v_max = v_dir_max / (v_dir_max.norm() + 1e-12)       # 方向对齐；若想更大logit，可再乘一个标量α（非Pre-Norm时）
     v_max = v_max.to(dtype)   
 
     # 让打分最小：取反方向
-    v_dir_min = -(Wf.T @ qf.T )                    # (in,)
+    v_dir_min = -(Wf.T @ qf.T).mean(1)                    # (in,)
     v_min = v_dir_min / (v_dir_min.norm() + 1e-12)
     v_min = v_min.to(dtype)
     

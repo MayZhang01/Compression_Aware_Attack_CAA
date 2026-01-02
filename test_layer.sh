@@ -1,8 +1,11 @@
 
 # # llava pope
 python eval_load.py \
---model_path "../../model_weight/llava-v1.5-7b" --benign_flag "True" \
+--model_path "../../model_weight/llava-v1.5-7b" --benign_flag "False" \
 --res_file "saved_data/llava-v1.5-7b_qwen25_3b_7b_llava_pope_filter_rule1_adv_image_0.2_0.4_64_150_1.0_2_False_True_1_ca_False_311_False_20_20_10_5_5_10_10_40_0.8.pt"
+python eval_load.py \
+--model_path "../../model_weight/llava-v1.5-7b" --benign_flag "False" \
+--res_file "saved_data/llava-v1.5-7b_qwen25_3b_7b_llava_pope_filter_rule1_adv_image_0.2_0.4_32_150_1.0_2_False_True_1_ca_False_311_False_20_20_10_5_5_10_10_40_0.8.pt"
 
 python eval_load.py \
 --model_path "../../model_weight/llava-v1.5-7b" --benign_flag "True" \

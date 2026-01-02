@@ -98,6 +98,11 @@ def opt_adv_image_patch_transf_comb(
     grid_h=int(H/patch_size)
     grid_w=int(W/patch_size)
     mask = torch.zeros((H, W), device=image.device)
+    
+    image[0][:, :patch_size*2, :] = 0          # 上
+    image[0][:, -patch_size*2:, :] = 0         # 下
+    image[0][:, :, :patch_size*2] = 0          # 左
+    image[0][:, :, -patch_size*2:] = 0         # 右
 
     zero_pos = (image[0].abs() < eps).any(dim=0)  # (H, W)
     mask[zero_pos] = 1
@@ -119,6 +124,9 @@ def opt_adv_image_patch_transf_comb(
 
     adv_image=image.clone()
     for idx in range(k):
+        # adv_rand=torch.randn_like(adv_image)*adv_image.std()*mask_press[idx]*0.3
+        # adv_image=adv_image+adv_rand
+        # adv_image=torch.clamp(adv_image*mask_press[idx], -1.5, 1.5)+adv_image*mask_raise[idx]
         adv_patch=adv_patch_list[idx].to(device)
         tmp_adv_patch = adv_patch.reshape(C, 1, patch_size, 1, patch_size)
         tmp_adv_patch = tmp_adv_patch.repeat(1, grid_h, 1, grid_w, 1)
@@ -130,7 +138,8 @@ def opt_adv_image_patch_transf_comb(
         tmp_adv_least = tmp_adv_least.repeat(1,grid_h,1,grid_w,1)
         tmp_adv_least = tmp_adv_least.reshape(C, grid_h*patch_size, grid_w*patch_size)
         adv_image=adv_image+mask_raise[idx]*tmp_adv_least
+        adv_image=adv_image+torch.randn_like(adv_image)*adv_image.std()*mask_raise[idx]*0.3
+        
     
-
     save_clip_tensor_as_image(adv_image.cpu(),'2.png')
     return adv_image

@@ -317,6 +317,8 @@ def crop_and_resize_image(image, cut_loc, cut_size):
         h_start, w_start = H - crop_h, 0
     elif cut_loc == 3:  # bottom-right
         h_start, w_start = H - crop_h, W - crop_w
+    elif cut_loc == 4:  # center
+        h_start, w_start = int((H - crop_h)/2), int((W - crop_w)/2)
     else:
         raise ValueError("cut_loc must be 0, 1, 2, or 3.")
 

@@ -59,8 +59,8 @@ def eval_model(args, tokenizer, model, image_processor):
     questions = [json.loads(q) for q in open(os.path.expanduser(args.question_file), "r")]
     random.seed(124)
     random.shuffle(questions)
-    q_start=44
-    questions = questions[q_start:157]
+    q_start=0
+    questions = questions[q_start:311]#157
     data_loader = create_data_loader(questions, args.image_folder, tokenizer, image_processor, model.config, conv_mode=args.conv_mode)
 
     w_bpr_l = get_arg_or_default(args, 'w_bpr_l')

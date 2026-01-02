@@ -16,7 +16,7 @@ from llava.eval.find_adv_util import get_args
 # model_path = "../../model_weight/llava-v1.6-mistral-7b"#llava-v1.5-7b
 
 ArgsDefault = type('Args', (), {
-    "model_path": "../../model_weight/llava-v1.5-7b",
+    "model_path": "../../model_weight/llava-v1.6-vicuna-7b",
     "model_base": None,
     "image_folder": '../playground/data/eval/pope/val2014',
     # "question_file": '../playground/data/eval/pope/pope_filter_rule1_llava_qwen25_3b.jsonl',
@@ -30,18 +30,18 @@ ArgsDefault = type('Args', (), {
     "num_beams":1,
     "max_new_tokens":3,
     "layer_list":'[2]',
-    "target_layer_idx":2, 
+    "target_layer_idx":20, 
     "image_token_ratio_list":"[1, 0.7, 0.5, 0.3, 0.2, 0.1]",#
     "adv_steps_list":"[10]",
     "adv_lr":1,
     "cut_num":1,
-    "n_patch_num":0.4,
-    "l_patch_num":0,
-    "epsilon_list":"[32/255]",
+    "n_patch_num":0.25,
+    "l_patch_num":0.25,
+    "epsilon_list":"[128/255]",
     "bpr_ths":0.1,
     "image_size":336,
     "patch_size":14,
-    "atk":'most',
+    "atk":'trf_full',
     "patch_or_noise":False,
     "most_or_least":True,
     "re_scale":False,

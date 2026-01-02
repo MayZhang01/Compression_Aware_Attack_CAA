@@ -73,7 +73,11 @@ def eval_model(args, tokenizer, model, image_processor):
     else:
         counter=Counter(cp_list)
 
+    count=0
     for idx in raw_data_dict:
+        count+=1
+        if count<19:
+            continue
         gt = raw_data_dict[idx]['gt']
         if isinstance(gt, tuple):
             gt=gt[0]
@@ -121,8 +125,10 @@ def eval_model(args, tokenizer, model, image_processor):
         rlt['gt']=gt
         logger.print_log(idx, ':', text)
         logger.print_log(counter.total,':', rlt)
-        if counter.total%20==0 and counter.total>0:
+        if counter.total%19==0 and counter.total>0:
             counter.get_metric(logger=logger)
+        # if counter.total==76:
+        #     break
     counter.get_metric(logger=logger)
     
     print_args(args, logger)
