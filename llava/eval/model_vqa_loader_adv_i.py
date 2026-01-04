@@ -60,7 +60,7 @@ def eval_model(args, tokenizer, model, image_processor):
     random.seed(124)
     random.shuffle(questions)
     q_start=0
-    questions = questions[q_start:311]#157
+    questions = questions[q_start:157]#157
     data_loader = create_data_loader(questions, args.image_folder, tokenizer, image_processor, model.config, conv_mode=args.conv_mode)
 
     w_bpr_l = get_arg_or_default(args, 'w_bpr_l')
