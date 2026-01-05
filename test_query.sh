@@ -6,7 +6,7 @@ python llava_eval_pope.py \
 --adv_lr 1 \
 --n_patch_num 0.2 \
 --l_patch_num 0 \
---epsilon_list "[64/255]" \
+--epsilon_list "[32/255]" \
 --bpr_ths 0.1 \
 --cut_num 1 \
 --re_scale "False" \
@@ -22,7 +22,7 @@ python llava_eval_vqa.py \
 --adv_lr 1 \
 --n_patch_num 0.2 \
 --l_patch_num 0 \
---epsilon_list "[64/255]" \
+--epsilon_list "[32/255]" \
 --bpr_ths 0.1 \
 --cut_num 1 \
 --re_scale "False" \
@@ -38,7 +38,7 @@ python llava_eval_mme.py \
 --adv_lr 1 \
 --n_patch_num 0.2 \
 --l_patch_num 0 \
---epsilon_list "[64/255]" \
+--epsilon_list "[32/255]" \
 --bpr_ths 0.1 \
 --cut_num 1 \
 --re_scale "False" \
@@ -70,7 +70,7 @@ python llava_eval_vqa.py \
 --adv_lr 1 \
 --n_patch_num 0.2 \
 --l_patch_num 0 \
---epsilon_list "[64/255]" \
+--epsilon_list "[32/255]" \
 --bpr_ths 0.1 \
 --cut_num 1 \
 --re_scale "False" \
@@ -86,7 +86,7 @@ python llava_eval_mme.py \
 --adv_lr 1 \
 --n_patch_num 0.2 \
 --l_patch_num 0 \
---epsilon_list "[64/255]" \
+--epsilon_list "[32/255]" \
 --bpr_ths 0.1 \
 --cut_num 1 \
 --re_scale "False" \

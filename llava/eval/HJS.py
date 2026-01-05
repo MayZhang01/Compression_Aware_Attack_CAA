@@ -34,7 +34,7 @@ def HJS(
     steps: int = 5,
     max_queries: int = 20,
     init_search_tries: int = 100,
-    init_noise_eps: float = 128/255,
+    init_noise_eps: float = 64/255,
     epsilon: float = 32/255,
     device: str = "cuda",
     layer_list=[2],
@@ -191,9 +191,6 @@ def HJS(
         constraint=norm,
     )
     # 1) Define the criterion (TARGETED)
-    # criterion = fb.criteria.TargetedMisclassification(
-    #     ep.astensor(np.array([list(target_token_ids)], dtype=np.int64))
-    # )
     criterion = ScalarTargetedMisclassification(1)
 
     x0_ep = ep.astensor(x0.cpu().numpy())

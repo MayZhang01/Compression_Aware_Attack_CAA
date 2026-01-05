@@ -69,34 +69,7 @@ class RaySAttack:
         """
         self.queries += 1
         
-        # 决定是否应用变换 (通常设为 0.5 或 0.7)
-        # 注意：这里 x 还是 [0,1] 范围的原始像素
-        # x=x.clone()+torch.randn_like(x)*x.std()*0.3
-        if self.diversity_prob > 0 and torch.rand(1).item() < self.diversity_prob:
-            x_aug = x.clone()
-            _, _, H, W = x_aug.shape
-            
-            # 简单的多样性策略：随机 Resize (0.9倍) + Padding
-            scale = 0.9
-            new_h, new_w = int(H * scale), int(W * scale)
-            
-            # 1. 下采样
-            x_aug = F.interpolate(x_aug, size=(new_h, new_w), mode='bilinear', align_corners=False)
-            
-            # 2. 随机 Padding 回原尺寸
-            pad_h = H - new_h
-            pad_w = W - new_w
-            top = torch.randint(0, pad_h + 1, (1,)).item()
-            left = torch.randint(0, pad_w + 1, (1,)).item()
-            # pad格式: (left, right, top, bottom)
-            pad = (left, pad_w - left, top, pad_h - top)
-            x_aug = F.pad(x_aug, pad, value=0.0) #用黑色填充，或者可以用 mean 填充
-            
-            # 3. 归一化
-            x_input = (x_aug - self.mean) / self.std
-        else:
-            # 正常归一化
-            x_input = (x.clone() - self.mean) / self.std
+        x_input = (x.clone() - self.mean) / self.std
 
         res = bool(is_adv_fn(
             self.model, input_ids, x_input, self.layer_list, self.cp, True, self.target_token_ids, self.avoid_token_ids
@@ -117,8 +90,6 @@ class RaySAttack:
                 hi = mid
             else:
                 lo = mid
-            # if hi<self.epsilon:
-            #     break
         return hi
 
     def _find_initial_alpha(self, x0, text,d):
@@ -152,7 +123,7 @@ class RaySAttack:
 
         # If x0 already satisfies the target decision, we can flip the goal externally.
         # Here we assume the goal is: make is_adv_fn(x) == True.
-        if self._query(x0,input_ids):
+        if self._query(x0, input_ids):
             logger.print_log(f"[RayS] The clean input is already adversarial under the criterion. Queries: {self.queries}")
             # x_tmp=(x0 - self.mean) / self.std
             # save_clip_tensor_as_image(x_tmp.cpu(),'3.png')
@@ -161,8 +132,6 @@ class RaySAttack:
         # Initialize a random sign direction d in {-1, +1}^D
         d = torch.sign(torch.randn_like(x0))
         d[d == 0] = 1.0
-        # d = torch.randn_like(x0)
-        # d=(torch.sign(d)-0.5)*2
 
         best_alpha = float("inf")
         best_adv = None
@@ -205,17 +174,17 @@ class RaySAttack:
             # start = (it * block) % D
             # idx = torch.arange(start, min(start + block, D), device=self.device)
 
-            # # 1. 计算当前层级总共有多少块 (2^level)
+            # 1. 计算当前层级总共有多少块 (2^level)
             num_blocks_at_level = 2 ** curr_level
 
-            # # 2. 计算每一块的大小 (向上取整，防止除不尽漏掉像素)
+            # 2. 计算每一块的大小 (向上取整，防止除不尽漏掉像素)
             block_size = (D + num_blocks_at_level - 1) // num_blocks_at_level
 
-            # # 3. 计算当前块的起始和结束索引
+            # 3. 计算当前块的起始和结束索引
             start = curr_block_idx * block_size
             end = min(start + block_size, D) # 确保不越界
 
-            # # 生成需要翻转的索引
+            # 生成需要翻转的索引
             if start >= D: 
                 curr_block_idx = 0
                 curr_level += 1
@@ -223,31 +192,13 @@ class RaySAttack:
             idx = torch.arange(start, end, device=self.device)
 
             #随机反转
-            n_flip = end-start #max(1, D // (2 ** (1 + it // 500)))
-            idx = torch.randperm(D, device=self.device)[:n_flip]
+            # n_flip = end-start #max(1, D // (2 ** (1 + it // 500)))
+            # idx = torch.randperm(D, device=self.device)[:n_flip]
 
             # Try flipping this block
-            # d_try = flat_d.clone()
-            # d_try[idx] *= -1.0
-            # d_try = d_try.view_as(d)
             d_try_flat = flat_d.clone()
             d_try_flat[idx] *= -1.0
             d_try = d_try_flat.view_as(d)
-
-            # Check if we can get a smaller alpha along the new ray
-            # alpha_hi = self._find_initial_alpha(x0, text, d_try)
-            # if alpha_hi is None:
-            #     continue
-
-            # alpha_try = self._binary_search_alpha(x0, text, d_try, lo=0.0, hi=alpha_hi)
-
-            # if alpha_try < best_alpha:
-            #     best_alpha = alpha_try
-            #     best_adv = self._clip(x0 + best_alpha * d_try)
-            #     flat_d = d_try.view(-1)  # accept the new direction
-
-            #     if self.verbose:
-            #         logger.print_log(f"[RayS] iter={it}, improved alpha={best_alpha:.6f}, queries={self.queries}")
 
             # Check Phase (Fast Check)
             x_check = self._clip(x0 + best_alpha * d_try)
@@ -284,21 +235,9 @@ class RaySAttack:
         status = "SUCCESS" if is_success else "FAILED"
         logger.print_log(f"[RayS] Finished. Result: {status}. Best Alpha: {best_alpha:.4f} (Threshold: {self.epsilon}), Queries: {self.queries}, iter:{it}")
 
-        # overshoot_factor =1.5
-        # final_alpha = best_alpha * overshoot_factor
-        # final_adv = self._clip(x0 + final_alpha * d)
-        # final_adv = (final_adv - self.mean) / self.std
-        # save_clip_tensor_as_image(final_adv.cpu(), '3_overshoot.png')
         if is_success==False:
             best_adv = self._clip(x0 + self.epsilon * d_try)
         best_adv=(best_adv - self.mean) / self.std
         save_clip_tensor_as_image(best_adv.cpu(),'3.png')
         return best_adv, is_success
 
-        # if best_adv is None:
-        #     x0=(x0-self.mean)/self.std
-        #     return x0
-
-        # best_adv=(best_adv-self.mean)/self.std
-        # save_clip_tensor_as_image(best_adv.cpu(),'3.png')
-        # return best_adv
