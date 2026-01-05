@@ -395,3 +395,45 @@ def get_max_min_Q(x, attn, t_idx_num, dtype=torch.float16):
     # v = torch.linalg.lstsq(Wf, rhsB).solution.squeeze(-1)    # (in,)
     # v = v.to(W_K.dtype)                      # (in,)
     return v_max, v_min
+
+
+def first_token_id_llava(
+    model,
+    input_ids,
+    image_tensor,
+    cp,
+    layer_list,
+    most_or_least=True,
+    temperature=0,
+    max_new_tokens=5,
+    num_beams=1,
+):
+  
+    # with torch.no_grad():
+    #     (
+    #         _,
+    #         _,
+    #         _,
+    #         _,
+    #         adv_input_embeds,
+    #         _,  
+    #     ) = model.prepare_inputs_labels_for_multimodal_pdrop(       
+    #         input_ids, position_ids=None, attention_mask=None, past_key_values=None, labels=None,
+    #         images=image_tensor.to(dtype=torch.float16, device='cuda', non_blocking=True), 
+    #         image_sizes=576,
+    #     )
+    with torch.inference_mode():
+        model.model.layer_list = layer_list
+        model.model.image_token_ratio_list = [cp]
+        model.model.image_token_ratio_list.insert(0, 1.0)
+        model.model.most_or_least=most_or_least
+        adv_output_ids = model.generate(
+            input_ids,
+            images=image_tensor.to(dtype=torch.float16, device='cuda', non_blocking=True),
+            # inputs_embeds=adv_input_embeds,
+            do_sample=True if temperature > 0 else False,
+            num_beams=num_beams,
+            max_new_tokens=max_new_tokens,
+            use_cache=True
+        )
+    return adv_output_ids[0,1]

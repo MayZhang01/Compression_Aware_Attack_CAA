@@ -76,8 +76,8 @@ def eval_model(args, tokenizer, model, image_processor):
     count=0
     for idx in raw_data_dict:
         count+=1
-        if count<19:
-            continue
+        # if count<19:
+        #     continue
         gt = raw_data_dict[idx]['gt']
         if isinstance(gt, tuple):
             gt=gt[0]
@@ -118,7 +118,7 @@ def eval_model(args, tokenizer, model, image_processor):
             rlt[str(cp)]=adv_outputs
 
         torch.cuda.empty_cache()
-        if 'textvqa' in args.question_file:
+        if 'vqa' in adv_path_list[0]:
             rlt=counter.add_rlt(gt=gt, rlt=rlt)
         else:
             counter.add_rlt(gt=gt, rlt=rlt)

@@ -19,6 +19,8 @@ import random
 from llava.eval.find_adv_patch import opt_adv_image_patch
 from llava.eval.find_adv_trf import opt_adv_image_patch_transf
 from llava.eval.find_adv_most import opt_adv_image_most
+from llava.eval.HJS import HJS
+from llava.eval.RayS import RaySAttack
 from llava.eval.utils import Logger, extract_name_from_path, print_args, get_arg_or_default
 from llava.eval.find_adv_util import judge_adv
 import numpy as np
@@ -60,7 +62,7 @@ def eval_model(args, tokenizer, model, image_processor):
     random.seed(124)
     random.shuffle(questions)
     q_start=0
-    questions = questions[q_start:157]#157
+    questions = questions[q_start:113]#157
     data_loader = create_data_loader(questions, args.image_folder, tokenizer, image_processor, model.config, conv_mode=args.conv_mode)
 
     w_bpr_l = get_arg_or_default(args, 'w_bpr_l')
@@ -118,6 +120,18 @@ def eval_model(args, tokenizer, model, image_processor):
                 # image_feature_size=(1,576,4096)
             )
             ori_prompt_len=model.model.prompt_len[0]
+        
+        target_label=get_target_label_from_gt(['Sorry', ' Sorry', 'sorry', ' sorry'], tokenizer, target_label=[])
+        untarget_label=None
+        if isinstance(gt, list):
+            untarget_label=get_target_label_from_gt(gt, tokenizer, target_label=[11125])
+        elif 'yes' in gt.lower():
+            target_label=get_target_label_from_gt(['No', ' No', 'no', ' no'], tokenizer, target_label=[])
+            untarget_label=get_target_label_from_gt(['Yes', ' Yes', 'yes', ' yes'], tokenizer, target_label=[])
+        elif 'no' in gt.lower():
+            target_label=get_target_label_from_gt(['Yes', ' Yes', 'yes', ' yes'], tokenizer, target_label=[])
+            untarget_label=get_target_label_from_gt(['No', ' No', 'no', ' no'], tokenizer, target_label=[])
+        
         if args.atk=="ca":
             adv_images, adv_input_embeds, adv_num, patch_inter_ratio, least_inter_ratio=opt_adv_image_patch(
                 model, new_input_embeds, attention_mask,
@@ -170,16 +184,6 @@ def eval_model(args, tokenizer, model, image_processor):
 
             )
         elif args.atk=="vnl":
-            target_label=get_target_label_from_gt(['Sorry', ' Sorry', 'sorry', ' sorry'], tokenizer, target_label=[])
-            untarget_label=None
-            if isinstance(gt, list):
-                untarget_label=get_target_label_from_gt(gt, tokenizer, target_label=[11125])
-            elif 'yes' in gt.lower():
-                target_label=get_target_label_from_gt(['No', ' No', 'no', ' no'], tokenizer, target_label=[])
-                untarget_label=get_target_label_from_gt(['Yes', ' Yes', 'yes', ' yes'], tokenizer, target_label=[])
-            elif 'no' in gt.lower():
-                target_label=get_target_label_from_gt(['Yes', ' Yes', 'yes', ' yes'], tokenizer, target_label=[])
-                untarget_label=get_target_label_from_gt(['No', ' No', 'no', ' no'], tokenizer, target_label=[])
             
             adv_images, adv_input_embeds, adv_num, patch_inter_ratio, least_inter_ratio=opt_adv_image_vanilla(
                 model, new_input_embeds, attention_mask,
@@ -228,6 +232,66 @@ def eval_model(args, tokenizer, model, image_processor):
                 sparse_flag=sparse_flag, ori_bound=ori_bound,
             )
             adv_patch, adv_least=torch.tensor([]), torch.tensor([])
+        elif args.atk=="HJS":
+            adv_images=HJS(
+                model=model,
+                image_tensor=image_tensor.to(dtype=torch.float16, device='cuda', non_blocking=True),
+                input_ids=input_ids,  
+                target_token_ids=target_label,
+                avoid_token_ids=untarget_label,
+                epsilon=args.epsilon,
+                device = "cuda",
+                layer_list=layer_list,
+                cp=args.n_patch_num,
+                logger=logger,
+            )
+            with torch.no_grad():
+                (
+                    _,
+                    _,
+                    _,
+                    _,
+                    adv_input_embeds,
+                    _,  
+                ) = model.prepare_inputs_labels_for_multimodal_pdrop(       
+                    input_ids, position_ids=None, attention_mask=None, past_key_values=None, labels=None,
+                    images=adv_images.to(dtype=torch.float16, device='cuda', non_blocking=True), 
+                    image_sizes=image_sizes,
+                )
+                ori_prompt_len=model.model.prompt_len[0]
+                adv_patch, adv_least=torch.tensor([]), torch.tensor([])
+                patch_inter_ratio, least_inter_ratio=0,0
+                adv_num=0
+        elif args.atk=="rays":
+            rays = RaySAttack(
+                model=model,
+                layer_list=layer_list,
+                cp=args.n_patch_num,
+                max_queries=500,
+                max_iters=100,
+                epsilon=args.epsilon,
+                device="cuda",
+                target_token_ids=target_label,
+                avoid_token_ids=untarget_label,  
+            )
+            adv_images, adv_statue = rays.run(image_tensor.to(dtype=torch.float16, device='cuda', non_blocking=True), input_ids, logger=logger)
+            with torch.no_grad():
+                (
+                    _,
+                    _,
+                    _,
+                    _,
+                    adv_input_embeds,
+                    _,  
+                ) = model.prepare_inputs_labels_for_multimodal_pdrop(       
+                    input_ids, position_ids=None, attention_mask=None, past_key_values=None, labels=None,
+                    images=adv_images.to(dtype=torch.float16, device='cuda', non_blocking=True), 
+                    image_sizes=image_sizes,
+                )
+                ori_prompt_len=model.model.prompt_len[0]
+                adv_patch, adv_least=torch.tensor([]), torch.tensor([])
+                patch_inter_ratio, least_inter_ratio=0,0
+                adv_num=0
 
         rlt={'patch_inter_ratio':patch_inter_ratio, 'least_inter_ratio':least_inter_ratio}
         try:

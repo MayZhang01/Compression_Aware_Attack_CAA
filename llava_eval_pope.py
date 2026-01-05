@@ -16,7 +16,7 @@ from llava.eval.find_adv_util import get_args
 # model_path = "../../model_weight/llava-v1.6-mistral-7b"#llava-v1.5-7b
 
 ArgsDefault = type('Args', (), {
-    "model_path": "../../model_weight/llava-v1.6-vicuna-7b",
+    "model_path": "../../model_weight/llava-v1.5-7b",
     "model_base": None,
     "image_folder": '../playground/data/eval/pope/val2014',
     # "question_file": '../playground/data/eval/pope/pope_filter_rule1_llava_qwen25_3b.jsonl',
@@ -35,13 +35,13 @@ ArgsDefault = type('Args', (), {
     "adv_steps_list":"[10]",
     "adv_lr":1,
     "cut_num":1,
-    "n_patch_num":0.25,
-    "l_patch_num":0.25,
-    "epsilon_list":"[128/255]",
+    "n_patch_num":0.2,
+    "l_patch_num":0,
+    "epsilon_list":"[64/255]",
     "bpr_ths":0.1,
     "image_size":336,
     "patch_size":14,
-    "atk":'trf_full',
+    "atk":'HJS',
     "patch_or_noise":False,
     "most_or_least":True,
     "re_scale":False,
