@@ -90,6 +90,8 @@ class RaySAttack:
                 hi = mid
             else:
                 lo = mid
+            # if hi<self.epsilon:
+            #     break
         return hi
 
     def _find_initial_alpha(self, x0, text,d):
@@ -140,9 +142,10 @@ class RaySAttack:
         alpha_hi = self._find_initial_alpha(x0, input_ids, d)
         if alpha_hi is None:
             logger.print_log(f"[RayS] Failed to find an initial adversarial point along the initial ray. Queries: {self.queries}")
-            x0=(x0 - self.mean) / self.std
-            save_clip_tensor_as_image(x0.cpu(),'3.png')
-            return x0, False
+            x_check = self._clip(x0 + self.epsilon * d)
+            x_check=(x_check - self.mean) / self.std
+            save_clip_tensor_as_image(x_check.cpu(),'3.png')
+            return x_check, False
             
         alpha = self._binary_search_alpha(x0, input_ids, d, lo=0.0, hi=alpha_hi)
         best_alpha = alpha
@@ -216,6 +219,7 @@ class RaySAttack:
                     # 循环中一旦达标，立即算作成功返回
                     if best_alpha <= self.epsilon:
                         logger.print_log(f"[RayS] Success! Alpha reached {best_alpha:.4f}, Queries: {self.queries}")
+                        best_adv = self._clip(x0 + self.epsilon * d_try)
                         best_adv=(best_adv - self.mean) / self.std
                         save_clip_tensor_as_image(best_adv.cpu(),'3.png')
                         return best_adv, True

@@ -436,4 +436,4 @@ def first_token_id_llava(
             max_new_tokens=max_new_tokens,
             use_cache=True
         )
-    return adv_output_ids[0,1]
+    return adv_output_ids[0,1:]

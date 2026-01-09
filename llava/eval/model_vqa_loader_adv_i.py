@@ -233,6 +233,10 @@ def eval_model(args, tokenizer, model, image_processor):
             )
             adv_patch, adv_least=torch.tensor([]), torch.tensor([])
         elif args.atk=="HJS":
+            # mode='toward_and_away'
+            if 'vqa' in args.question_file:
+                target_label=None
+                # mode='away'
             adv_images=HJS(
                 model=model,
                 image_tensor=image_tensor.to(dtype=torch.float16, device='cuda', non_blocking=True),
@@ -243,7 +247,8 @@ def eval_model(args, tokenizer, model, image_processor):
                 epsilon=args.epsilon,
                 steps=5,
                 max_queries=20,
-                init_search_tries=100,
+                init_search_tries=50,
+                # mode=mode,
                 device = "cuda",
                 layer_list=layer_list,
                 cp=args.n_patch_num,
@@ -267,6 +272,8 @@ def eval_model(args, tokenizer, model, image_processor):
                 patch_inter_ratio, least_inter_ratio=0,0
                 adv_num=0
         elif args.atk=="rays":
+            if 'vqa' in args.question_file:
+                target_label=None
             rays = RaySAttack(
                 model=model,
                 layer_list=layer_list,
