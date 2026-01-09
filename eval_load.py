@@ -19,7 +19,7 @@ ArgsDefault = type('Args', (), {
     # "top_p":None,
     "num_beams":1,
     "max_new_tokens":3,    
-    "image_token_ratio_list":"[1, 0.7, 0.5, 0.3, 0.2, 0.1]",
+    "image_token_ratio_list":"[1, 0.7, 0.5, 0.4, 0.3, 0.2, 0.1]",
     "benign_flag": True,
     "most_or_least":True,
     "res_file": 'saved_data/llava-v1.5-7b_qwen25_3b_7b_llava_pope_filter_rule1_adv_image_0.2_0.4_32_150_1.0_8_False_True_1_ca_False_157_False_20_20_10_5_5_10_10_40_0.8.pt',

@@ -290,8 +290,9 @@ def opt_adv_image_patch_transf(
         if 'full' in atk_name:
             adv_images=[
                 adv_image 
-                +tmp_adv_least*epsilon 
-                +tmp_adv_patch*epsilon
+                +pixel_all_l_mask[i]*tmp_adv_least*epsilon 
+                +pixel_most_mask[i]*tmp_adv_patch*epsilon
+                +pixel_second_mask[i]*tmp_adv_patch*epsilon
                 for adv_image in adv_images
             ]
         else:

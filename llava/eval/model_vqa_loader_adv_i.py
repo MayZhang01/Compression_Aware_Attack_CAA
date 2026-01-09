@@ -62,7 +62,7 @@ def eval_model(args, tokenizer, model, image_processor):
     random.seed(124)
     random.shuffle(questions)
     q_start=0
-    questions = questions[q_start:113]#157
+    questions = questions[q_start:157]#157
     data_loader = create_data_loader(questions, args.image_folder, tokenizer, image_processor, model.config, conv_mode=args.conv_mode)
 
     w_bpr_l = get_arg_or_default(args, 'w_bpr_l')
@@ -233,6 +233,8 @@ def eval_model(args, tokenizer, model, image_processor):
             )
             adv_patch, adv_least=torch.tensor([]), torch.tensor([])
         elif args.atk=="HJS":
+            if 'vqa' in args.question_file:
+                target_label=None
             adv_images=HJS(
                 model=model,
                 image_tensor=image_tensor.to(dtype=torch.float16, device='cuda', non_blocking=True),
@@ -267,6 +269,8 @@ def eval_model(args, tokenizer, model, image_processor):
                 patch_inter_ratio, least_inter_ratio=0,0
                 adv_num=0
         elif args.atk=="rays":
+            if 'vqa' in args.question_file:
+                target_label=None
             rays = RaySAttack(
                 model=model,
                 layer_list=layer_list,
@@ -324,7 +328,7 @@ def eval_model(args, tokenizer, model, image_processor):
             torch.cuda.empty_cache()
             continue
 
-        if 'textvqa' in args.question_file:
+        if 'vqa' in args.question_file:
             rlt=counter.add_rlt(gt=gt, rlt=rlt)
         else:
             counter.add_rlt(gt=gt, rlt=rlt)

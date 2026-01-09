@@ -10,12 +10,17 @@ def is_adv_fn(model, input_ids, image_tensor: torch.Tensor, layer_list, cp, most
         model=model,
         input_ids=input_ids,
         image_tensor=image_tensor,
-        max_new_tokens=1,
+        max_new_tokens=3,
         layer_list=layer_list,
         cp=cp,
         most_or_least=most_or_least,
     )
-    return (token_id in target_token_ids) and (token_id not in avoid_token_ids)
+    if target_token_ids is None:
+        return not any([tid in avoid_token_ids for tid in token_id])
+    elif avoid_token_ids is None:
+        return any([tid in target_token_ids for tid in token_id])
+    else:
+        return any([tid in target_token_ids for tid in token_id]) and not any([tid in avoid_token_ids for tid in token_id])
 
 class RaySAttack:
     """
@@ -90,6 +95,8 @@ class RaySAttack:
                 hi = mid
             else:
                 lo = mid
+            if hi<self.epsilon:
+                break
         return hi
 
     def _find_initial_alpha(self, x0, text,d):
@@ -129,6 +136,7 @@ class RaySAttack:
             # save_clip_tensor_as_image(x_tmp.cpu(),'3.png')
             # return x0, True
 
+        # for i in range(5):
         # Initialize a random sign direction d in {-1, +1}^D
         d = torch.sign(torch.randn_like(x0))
         d[d == 0] = 1.0
@@ -138,11 +146,16 @@ class RaySAttack:
 
         # 1) Find an initial adversarial point along the current ray
         alpha_hi = self._find_initial_alpha(x0, input_ids, d)
+        # if alpha_hi is not None:
+        #     break
+        # logger.print_log("Initialize iter: "+str(i))
+
         if alpha_hi is None:
             logger.print_log(f"[RayS] Failed to find an initial adversarial point along the initial ray. Queries: {self.queries}")
-            x0=(x0 - self.mean) / self.std
-            save_clip_tensor_as_image(x0.cpu(),'3.png')
-            return x0, False
+            x_check = self._clip(x0 + self.epsilon * d)
+            x_check=(x_check - self.mean) / self.std
+            save_clip_tensor_as_image(x_check.cpu(),'3.png')
+            return x_check, False
             
         alpha = self._binary_search_alpha(x0, input_ids, d, lo=0.0, hi=alpha_hi)
         best_alpha = alpha

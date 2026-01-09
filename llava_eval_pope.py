@@ -31,7 +31,7 @@ ArgsDefault = type('Args', (), {
     "max_new_tokens":3,
     "layer_list":'[2]',
     "target_layer_idx":20, 
-    "image_token_ratio_list":"[1, 0.7, 0.5, 0.3, 0.2, 0.1]",#
+    "image_token_ratio_list":"[1, 0.7, 0.5, 0.4, 0.3, 0.2, 0.1]",#
     "adv_steps_list":"[10]",
     "adv_lr":1,
     "cut_num":1,
@@ -41,7 +41,7 @@ ArgsDefault = type('Args', (), {
     "bpr_ths":0.1,
     "image_size":336,
     "patch_size":14,
-    "atk":'HJS',
+    "atk":'rays',
     "patch_or_noise":False,
     "most_or_least":True,
     "re_scale":False,

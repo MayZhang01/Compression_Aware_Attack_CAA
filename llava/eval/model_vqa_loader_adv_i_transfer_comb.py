@@ -19,6 +19,19 @@ from llava.eval.utils import Logger, extract_name_from_path, save_clip_tensor_as
 import numpy as np
 from llava.eval.m4c_evaluator import TextVQAAccuracyEvaluator
 from llava.eval.model_vqa_loader_adv_i import get_chunk, create_data_loader, Counter, Counter_acc
+import torch.nn.functional as F
+
+def add_border(image, padding, value=0):
+    # image: [C, H, W]
+    C, H, W = image.shape
+    # padding = (pad_width, pad_width, pad_width, pad_width)  # (left, right, top, bottom)
+    # Add border to the image using constant padding
+    image_with_border = F.pad(image, padding, mode='constant', value=value)
+    # Create a border mask: 1 for border, 0 for original image
+    mask = torch.zeros((H, W), dtype=torch.uint8, device=image.device)
+    mask_padded = F.pad(mask, padding, mode='constant', value=1)  # 边框为1，原图为0
+    # mask shape: [H+2*patch_width, W+2*patch_width]
+    return image_with_border, mask_padded
 
 def eval_model(args, tokenizer, model, image_processor):
     most_or_least=getattr(args, 'most_or_least', True)
@@ -41,7 +54,7 @@ def eval_model(args, tokenizer, model, image_processor):
     # random.seed(124)
     
     adv_path_list=eval(args.adv_path)
-    adv_patch_dict, adv_least_dict, raw_data_dict={}, {}, {}
+    adv_patch_dict, adv_least_dict, data_dict={}, {}, {}
     for adv_path in adv_path_list:
         logger.print_log(adv_path)
         tmp_adv_data=torch.load(adv_path)
@@ -58,9 +71,10 @@ def eval_model(args, tokenizer, model, image_processor):
             else:
                 adv_least_dict[idx]=[tmp_adv_least]
             
-            if idx not in raw_data_dict:
-                raw_data_dict[idx]={
+            if idx not in data_dict:
+                data_dict[idx]={
                     'raw_image_tensor':tmp_adv_data[idx]['raw_image_tensor'],
+                    'adv_image_tensor':tmp_adv_data[idx]['adv_image_tensor'],
                     'gt':tmp_adv_data[idx]['gt'],
                     'text':tmp_adv_data[idx]['text'],
                 }
@@ -74,26 +88,40 @@ def eval_model(args, tokenizer, model, image_processor):
         counter=Counter(cp_list)
 
     count=0
-    for idx in raw_data_dict:
+    for idx in data_dict:
         count+=1
         # if count<19:
         #     continue
-        gt = raw_data_dict[idx]['gt']
+        gt = data_dict[idx]['gt']
         if isinstance(gt, tuple):
             gt=gt[0]
-        text = raw_data_dict[idx]['text']
-        image_tensor = raw_data_dict[idx]['raw_image_tensor'].unsqueeze(0)
+        text = data_dict[idx]['text']
+        if 'least' in adv_path_list[0] or 'full' in adv_path_list[0]:
+            adv_image = data_dict[idx]['adv_image_tensor']#.unsqueeze(0)
+            left_border = int((336-adv_image.shape[2])/2)
+            right_border = 336 - adv_image.shape[2]- left_border
+            top_border = int((336-adv_image.shape[1])/2)
+            bottom_border = 336-adv_image.shape[1]-top_border
+            adv_image,_ = add_border(
+                adv_image,
+                padding = (left_border, right_border, top_border, bottom_border), 
+                value=0
+            )
+            adv_image = adv_image.unsqueeze(0)
+            input_ids, _, image_sizes=process_input(text, adv_image, tokenizer, image_processor, model.config, conv_mode)
+            save_clip_tensor_as_image(adv_image.cpu(),'2.png')
+        else:
+            image_tensor = data_dict[idx]['raw_image_tensor'].unsqueeze(0)
 
-        
-        input_ids, _, image_sizes=process_input(text, image_tensor, tokenizer, image_processor, model.config, conv_mode)
-        save_clip_tensor_as_image(image_tensor.cpu(),'1.png')
+            input_ids, _, image_sizes=process_input(text, image_tensor, tokenizer, image_processor, model.config, conv_mode)
+            save_clip_tensor_as_image(image_tensor.cpu(),'1.png')
 
-        adv_image=opt_adv_image_patch_transf_comb(
-            image_tensor,
-            adv_least_dict[idx],
-            adv_patch_dict[idx],
-            epsilon=args.epsilon,
-        )
+            adv_image=opt_adv_image_patch_transf_comb(
+                image_tensor,
+                adv_least_dict[idx],
+                adv_patch_dict[idx],
+                epsilon=args.epsilon,
+            )
         
         rlt={'patch_inter_ratio':0, 'least_inter_ratio':0}
         for cp in cp_list:
