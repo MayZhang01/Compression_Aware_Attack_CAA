@@ -29,7 +29,7 @@ def HJS(
     input_ids: torch.Tensor,  
     target_token_ids=None,               # token IDs to move toward
     avoid_token_ids=None,                # token IDs to move away from
-    mode: str = "toward_and_away",                # "toward", "away", or "toward_and_away"
+    # mode: str = "toward_and_away",                # "toward", "away", or "toward_and_away"
     norm: str = "linf",                    # perturbation norm: "l2" or "linf"
     steps: int = 5,
     max_queries: int = 20,
@@ -57,7 +57,7 @@ def HJS(
     mean = torch.tensor([0.48145466, 0.4578275, 0.40821073], device=device).view(3, 1, 1)
     std = torch.tensor([0.26862954, 0.26130258, 0.27577711], device=device).view(3, 1, 1)
 
-    assert mode in ["toward", "away", "toward_and_away"]
+    # assert mode in ["toward", "away", "toward_and_away"]
     assert norm in ["l2", "linf"]
 
     bound_min, bound_max = 0.0, 1.0
@@ -94,15 +94,22 @@ def HJS(
                 cp=cp,
             )
 
-            if mode == "toward":
-                ok = token_id.item()  in target_token_ids
-            elif mode == "away":
-                ok = token_id.item()  not in avoid_token_ids
+            # if mode == "toward":
+            #     ok = token_id.item()  in target_token_ids
+            # elif mode == "away":
+            #     ok = token_id.item()  not in avoid_token_ids
+            # else:
+            #     ok = (
+            #         token_id.item()  in target_token_ids
+            #         and token_id.item()  not in avoid_token_ids
+            #     )
+                
+            if len(target_token_ids) ==0:
+                ok =  not any([tid in avoid_token_ids for tid in token_id])
+            elif len(avoid_token_ids) ==0:
+                ok =  any([tid in target_token_ids for tid in token_id])
             else:
-                ok = (
-                    token_id.item()  in target_token_ids
-                    and token_id.item()  not in avoid_token_ids
-                )
+                ok =  any([tid in target_token_ids for tid in token_id]) and not any([tid in avoid_token_ids for tid in token_id])
 
             decisions.append(ok)
 
@@ -144,7 +151,7 @@ def HJS(
     clean_ok = bool(decision_fn(x0.cpu().numpy())[0])
 
     # Target decision: flip the current decision
-    target_ok = not clean_ok
+    target_ok = True # not clean_ok
 
     logger.print_log(f"[HJS] clean decision={clean_ok}, target decision={target_ok}")
 

@@ -95,8 +95,8 @@ class RaySAttack:
                 hi = mid
             else:
                 lo = mid
-            if hi<self.epsilon:
-                break
+            # if hi<self.epsilon:
+            #     break
         return hi
 
     def _find_initial_alpha(self, x0, text,d):
@@ -229,6 +229,7 @@ class RaySAttack:
                     # 循环中一旦达标，立即算作成功返回
                     if best_alpha <= self.epsilon:
                         logger.print_log(f"[RayS] Success! Alpha reached {best_alpha:.4f}, Queries: {self.queries}")
+                        best_adv = self._clip(x0 + self.epsilon * d_try)
                         best_adv=(best_adv - self.mean) / self.std
                         save_clip_tensor_as_image(best_adv.cpu(),'3.png')
                         return best_adv, True
