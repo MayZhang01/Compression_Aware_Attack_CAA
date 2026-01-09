@@ -125,16 +125,16 @@ def opt_adv_image_patch_transf_comb(
 
     adv_image=image.clone()
     for idx in range(k):
-        adv_image=torch.clamp(adv_image*mask_press[idx], -0.5, 0.5)#+adv_image*mask_raise[idx]
+        adv_image=torch.clamp(adv_image*mask_press[idx], -0.5, 1)#+adv_image*mask_raise[idx]
         if epsilon>0:
-            adv_image=adv_image+torch.randn_like(adv_image)*adv_image.std()*mask_press[idx]*0.3
+            # adv_image=adv_image+torch.randn_like(adv_image)*adv_image.std()*mask_press[idx]*0.1
             adv_patch=adv_patch_list[idx].to(device)
             tmp_adv_patch = adv_patch.reshape(C, 1, patch_size, 1, patch_size)
             tmp_adv_patch = tmp_adv_patch.repeat(1, grid_h, 1, grid_w, 1)
             tmp_adv_patch = tmp_adv_patch.reshape(C, grid_h*patch_size, grid_w*patch_size)
             adv_image=adv_image+mask_press[idx]*tmp_adv_patch*epsilon
  
-        adv_image=adv_image+torch.randn_like(adv_image)*adv_image.std()*mask_raise[idx]*0.3
+        # adv_image=adv_image+torch.randn_like(adv_image)*adv_image.std()*mask_raise[idx]*0.3
         adv_least=adv_least_list[idx].to(device)
         tmp_adv_least = adv_least.reshape(C, 1, patch_size, 1, patch_size)
         tmp_adv_least = tmp_adv_least.repeat(1,grid_h,1,grid_w,1)
