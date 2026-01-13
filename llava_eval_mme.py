@@ -46,7 +46,7 @@ ArgsDefault = type('Args', (), {
     "most_or_least":True,
     "rlt_path":'',
     "re_scale":False,
-    "most_flag":False,
+    "most_flag":False, "sparse_flag": False,
     "w_bpr_l":20, "w_bpr_p":20, "w_dir_l":5, "w_dir_p":5, "w_bpr_lp":10,
     "w_ori_l":10, "w_ori_p":10,
     "stop_teps":40, "stop_ratio":0.8,

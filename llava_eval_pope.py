@@ -6,6 +6,7 @@ from llava.mm_utils import get_model_name_from_path
 from llava.eval.model_vqa_loader_adv_i import eval_model
 from llava.eval.model_vqa_loader_adv_i_transfer import eval_model as eval_model_trf
 from llava.eval.model_vqa_loader_adv_i_transfer_comb import eval_model as eval_model_trf_comb
+from llava.eval.model_vqa_loader_adv_i_top_down import eval_model as eval_model_top_down
 # import torch
 from llava.eval.find_adv_util import get_args
 
@@ -29,23 +30,25 @@ ArgsDefault = type('Args', (), {
     # "top_p":None,
     "num_beams":1,
     "max_new_tokens":3,
-    "layer_list":'[2]',
-    "target_layer_idx":20, 
-    "image_token_ratio_list":"[1, 0.7, 0.5, 0.4, 0.3, 0.2, 0.1]",#
-    "adv_steps_list":"[10]",
+    "target_layer_idx":2, 
+    # "layer_list":'[2]',
+    # "image_token_ratio_list":"[1, 0.7, 0.5, 0.4, 0.3, 0.2, 0.1]",#
+    "layer_list":'[2,4,6,8,10,12,14,16,18,20,22,24,26,28,30]',#,6,15
+    "image_token_ratio_list":"[[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]]",
+    "adv_steps_list":"[150]",
     "adv_lr":1,
     "cut_num":1,
     "n_patch_num":0.2,
-    "l_patch_num":0,
-    "epsilon_list":"[64/255]",
+    "l_patch_num":0.4,
+    "epsilon_list":"[32/255]",
     "bpr_ths":0.1,
     "image_size":336,
     "patch_size":14,
-    "atk":'rays',
+    "atk":'ca',
     "patch_or_noise":False,
     "most_or_least":True,
     "re_scale":False,
-    "most_flag":False,
+    "most_flag":False, "sparse_flag": False,
     "w_bpr_l":20, "w_bpr_p":20, "w_dir_l":10, "w_dir_p":5, "w_bpr_lp":5,
     "w_ori_l":10, "w_ori_p":10,
     "stop_teps":40, "stop_ratio":0.8,
@@ -79,5 +82,7 @@ for adv_steps in adv_steps_list:
             eval_model_trf(args, tokenizer, model, image_processor)
         elif len(args.adv_path) > 0:
             eval_model_trf_comb(args, tokenizer, model, image_processor)
+        elif len(eval(args.layer_list))>3:
+            eval_model_top_down(args, tokenizer, model, image_processor)
         else:
             eval_model(args, tokenizer, model, image_processor)

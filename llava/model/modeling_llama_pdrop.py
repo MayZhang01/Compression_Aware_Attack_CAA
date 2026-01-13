@@ -1183,7 +1183,7 @@ class LlamaModel(LlamaPreTrainedModel):
         # select text tokens
         v_token_start= self.image_token_posi[0]  # image start index
         text_token_start= v_token_start+self.image_tokens[0]+1  # image end index
-        if (self.layer_list==[2,6,15] and hidden_states.shape[1] !=1):
+        if ((self.layer_list==[2,6,15] or getattr(self, 'sparse_flag', False)) and hidden_states.shape[1] !=1):
             v_t = hidden_states[:, v_token_start: text_token_start, :]
             t_t = hidden_states[:, text_token_start: , :]
             m_v_t = v_t @ t_t.transpose(1, 2) # [1, 576, 53]
@@ -1235,7 +1235,7 @@ class LlamaModel(LlamaPreTrainedModel):
             # rank & drop after specific layer
             # only drop in prefill stage when inference
             rank_layer = layer_idx+1
-            if rank_layer in self.layer_list and rank_layer<24:
+            if rank_layer in self.layer_list: # and rank_layer<24
                 stage = self.layer_list.index(rank_layer) # determine current stage
                 # if hasattr(self, 'keep_length') and self.keep_length[0][stage]['keep_length']==self.keep_length[0][stage]['last_length']:
                 #     continue
@@ -1313,6 +1313,10 @@ class LlamaModel(LlamaPreTrainedModel):
         position_ids, attention_mask, labels,
         t_token_idx=None,
     ):
+        if hasattr(self, 'top_rank_index_dict')==False:
+            self.top_rank_index_dict={}
+        if cur_num not in self.top_rank_index_dict:
+            self.top_rank_index_dict[cur_num]={}
         
         # features=features+torch.randn(
         #     features.shape, dtype=features.dtype
@@ -1352,7 +1356,7 @@ class LlamaModel(LlamaPreTrainedModel):
                             else:
                                 token_ratio=0.5
                         keep_length = int(token_ratio * last_length)  # keep length of image tokens
-                        keep_length = max(50, keep_length)  # at least keep 20 tokens
+                        keep_length = max(25, keep_length)  # at least keep 20 tokens
                         image_end_index = image_start_index + last_length
                     
                         t_idx=t_token_idx+last_length
@@ -1486,10 +1490,12 @@ class LlamaModel(LlamaPreTrainedModel):
                 self.top_rank_index=top_rank_index
                 
                 start_index = image_index + image_tokens[i]
-                # self.logger.print_log(
-                #     'inter_ratio', intersection_ratio(torch.arange(image_index, image_index+100, 1), top_rank_index[0:100].cpu()),
-                #     'inter_ratio', intersection_ratio(torch.arange(start_index-100, start_index, 1), top_rank_index[0:100].cpu()),
-                # )
+                
+                self.top_rank_index_dict[cur_num][i] = {
+                    'top_rank_index': top_rank_index.clone(),
+                    'image_index': image_start_index,
+                    'start_index': start_index
+                }
                 top_rank_index= top_rank_index.sort().values  
 
                 new_input_embeds = torch.cat([features[i][ :image_index, :] ,features[i][ top_rank_index, :], features[i][start_index:, :]], dim=0)

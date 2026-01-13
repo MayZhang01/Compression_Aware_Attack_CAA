@@ -99,7 +99,8 @@ def opt_adv_image_patch_transf_comb(
     grid_w=int(W/patch_size)
     mask = torch.zeros((H, W), device=image.device)
     
-    b_w=3
+    b_w=3 #q2l  pope
+    # b_w=2 #q2l  vqa
     image[0][:, :patch_size*b_w, :] = 0          # 上
     image[0][:, -patch_size*b_w:, :] = 0         # 下
     image[0][:, :, :patch_size*b_w] = 0          # 左
@@ -125,9 +126,11 @@ def opt_adv_image_patch_transf_comb(
 
     adv_image=image.clone()
     for idx in range(k):
-        adv_image=torch.clamp(adv_image*mask_press[idx], -0.5, 1)#+adv_image*mask_raise[idx]
+        # adv_image=torch.clamp(adv_image*mask_press[idx], -0.2, 1)# q2l  pope
+        adv_image=torch.clamp(adv_image*mask_press[idx], -0, 1)# q2l  vqa
+        # adv_image=torch.clamp(adv_image*mask_press[idx], -0, 1)# l2ln
         if epsilon>0:
-            # adv_image=adv_image+torch.randn_like(adv_image)*adv_image.std()*mask_press[idx]*0.1
+            # adv_image=adv_image+torch.randn_like(adv_image)*adv_image.std()*mask_press[idx]*0.3
             adv_patch=adv_patch_list[idx].to(device)
             tmp_adv_patch = adv_patch.reshape(C, 1, patch_size, 1, patch_size)
             tmp_adv_patch = tmp_adv_patch.repeat(1, grid_h, 1, grid_w, 1)

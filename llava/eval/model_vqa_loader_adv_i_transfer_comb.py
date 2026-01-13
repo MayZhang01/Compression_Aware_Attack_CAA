@@ -35,6 +35,7 @@ def add_border(image, padding, value=0):
 
 def eval_model(args, tokenizer, model, image_processor):
     most_or_least=getattr(args, 'most_or_least', True)
+    sparse_flag=getattr(args, 'sparse_flag', False)
     dataset_name=extract_name_from_path(args.adv_path)
     dir_name=dataset_name
     logger=Logger(dir_name=dir_name)
@@ -131,6 +132,7 @@ def eval_model(args, tokenizer, model, image_processor):
                     model.model.image_token_ratio_list = [cp]
                     model.model.image_token_ratio_list.insert(0, 1.0)
                     model.model.most_or_least=most_or_least
+                    model.model.sparse_flag=sparse_flag
                 adv_output_ids = model.generate(
                     input_ids,
                     images=adv_image.to(dtype=torch.float16, device='cuda', non_blocking=True),

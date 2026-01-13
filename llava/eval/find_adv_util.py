@@ -318,6 +318,7 @@ def get_args(ArgsDefault):
     parser.add_argument('--atk', type=str, default=None)
     parser.add_argument('--patch_or_noise', type=str, default=None)
     parser.add_argument('--most_or_least', type=str, default=None)
+    parser.add_argument('--sparse_flag', type=str, default=None)
     parser.add_argument('--rlt_path', type=str, default=None)
     parser.add_argument('--w_bpr_l', type=float, default=None)
     parser.add_argument('--w_bpr_p', type=float, default=None)
