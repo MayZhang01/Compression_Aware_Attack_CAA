@@ -15,7 +15,6 @@ from torch.utils.data import Dataset, DataLoader
 from PIL import Image
 import math
 import random
-# from llava.eval.find_adv import opt_adv_pro, opt_adv_image_token, opt_adv_image_text_pro
 from llava.eval.find_adv_patch import opt_adv_image_patch
 from llava.eval.find_adv_trf import opt_adv_image_patch_transf
 from llava.eval.find_adv_most import opt_adv_image_most

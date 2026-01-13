@@ -78,11 +78,8 @@ def eval_model(args, tokenizer, model, image_processor):
         input_ids = data[idx]['input_ids'].to(model.device)
         raw_input_embeds = data[idx]['raw_input_embeds'].to(model.device)
         adv_input_embeds = data[idx]['adv_input_embeds'].to(model.device)
-        # image_grid_thw = data[idx]['image_grid_thw'].to(model.device)
-        # attention_mask = data[idx]['attention_mask'].to(model.device)
         gt = data[idx]['gt']
         cur_prompt = data[idx]['text']
-        # image_sizes=data[idx]['adv_image_tensor'].to(model.device)
         ori_prompt_len=input_ids.shape[1]-1
         
         image_index = torch.where(input_ids == IMAGE_TOKEN_INDEX)[1].tolist()
@@ -112,8 +109,6 @@ def eval_model(args, tokenizer, model, image_processor):
                         num_beams=args.num_beams,
                         max_new_tokens=args.max_new_tokens,
                         use_cache=True
-                        # temperature=args.temperature,
-                        # top_p=args.top_p,
                     )
                 raw_outputs = tokenizer.batch_decode(raw_output_ids, skip_special_tokens=True)[0].strip()
                 rlt['ben_' + str(cp)]=raw_outputs
@@ -130,9 +125,6 @@ def eval_model(args, tokenizer, model, image_processor):
                         num_beams=args.num_beams,
                         max_new_tokens=args.max_new_tokens,
                         use_cache=True
-                        # image_sizes=image_sizes,
-                        # temperature=args.temperature,
-                        # top_p=args.top_p,
                     )
                 adv_outputs = tokenizer.batch_decode(adv_output_ids, skip_special_tokens=True)[0].strip()
                 rlt[str(cp)]=adv_outputs

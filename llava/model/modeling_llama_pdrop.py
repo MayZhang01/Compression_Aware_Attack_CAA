@@ -1375,10 +1375,7 @@ class LlamaModel(LlamaPreTrainedModel):
                         't_token_idx',t_token_idx
                     )
                     self.keep_length.append(tmp_ratio_dict)
-            # if self.keep_length[0][cur_num]['keep_length']==self.keep_length[0][cur_num]['last_length']:
-            #     return position_ids, attention_mask, features, labels
-            # image_tokens = [int(cur_image_token * self.image_token_ratio_list[cur_num]) for cur_image_token in self.image_tokens]
-            # keep_length = [int(cur_image_token * self.image_token_ratio_list[cur_num + 1]) for cur_image_token in self.image_tokens]
+                    
             image_tokens = [k[cur_num]['last_length'] for k in self.keep_length]
 
             features_list = []
@@ -1468,8 +1465,6 @@ class LlamaModel(LlamaPreTrainedModel):
 
                 else:
                     prompt_total_len = self.prompt_len[i] + image_tokens[i]
-                    # text_query_states = cur_query_states[:,prompt_total_len-1,:].unsqueeze(1)  
-                    # text_eager_attention_mask = cur_eager_attention_mask[:,prompt_total_len-1,:].unsqueeze(1)
                     text_query_states = cur_query_states[:,t_idx,:]
                     text_eager_attention_mask = cur_eager_attention_mask[:,t_idx,:]
                 
@@ -1480,7 +1475,6 @@ class LlamaModel(LlamaPreTrainedModel):
                 attn_weights = attn_weights.mean(dim=1).unsqueeze(1)
 
                 attention_avg_head = torch.mean(attn_weights, dim=0) # ave across heads
-                # attention_avg_head = attention_avg_head[:,image_index:image_index+image_tokens[i]] # select image token as keys
                 attention_avg_head = attention_avg_head[:,image_start_index:image_end_index] # select image token as keys
                 attention_avg_text = torch.mean(attention_avg_head, dim=0) # (576)
 
@@ -1539,16 +1533,6 @@ class LlamaModel(LlamaPreTrainedModel):
 
             new_input_embeds = torch.stack(embeds_padded,dim=0)
             new_input_embeds = new_input_embeds.to(features[0].dtype)
-
-            # new_input_embeds=new_input_embeds+torch.randn(
-            #     new_input_embeds.shape, dtype=new_input_embeds.dtype
-            # ).to(new_input_embeds.device)*0.01
-            
-            # for i in range(new_input_embeds.shape[0]):
-            #     image_idx=torch.arange(image_index, image_index+keep_length[i])
-            #     image_idx=image_idx[torch.randperm(image_idx.size(0))]
-            #     new_idx=torch.cat([torch.arange(image_index), image_idx, torch.arange(image_index+keep_length[i], new_input_embeds.shape[1])])
-            #     new_input_embeds = new_input_embeds[:,new_idx, :]
 
             new_attention_mask = torch.stack(attention_mask_padded,dim=0)
             new_labels = torch.stack(labels_paded,dim=0)

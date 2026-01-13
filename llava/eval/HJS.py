@@ -29,7 +29,6 @@ def HJS(
     input_ids: torch.Tensor,  
     target_token_ids=None,               # token IDs to move toward
     avoid_token_ids=None,                # token IDs to move away from
-    # mode: str = "toward_and_away",                # "toward", "away", or "toward_and_away"
     norm: str = "linf",                    # perturbation norm: "l2" or "linf"
     steps: int = 5,
     max_queries: int = 20,
@@ -93,16 +92,6 @@ def HJS(
                 layer_list=layer_list,
                 cp=cp,
             )
-
-            # if mode == "toward":
-            #     ok = token_id.item()  in target_token_ids
-            # elif mode == "away":
-            #     ok = token_id.item()  not in avoid_token_ids
-            # else:
-            #     ok = (
-            #         token_id.item()  in target_token_ids
-            #         and token_id.item()  not in avoid_token_ids
-            #     )
                 
             if len(target_token_ids) ==0:
                 ok =  not any([tid in avoid_token_ids for tid in token_id])

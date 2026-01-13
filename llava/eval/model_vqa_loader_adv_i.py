@@ -317,9 +317,6 @@ def eval_model(args, tokenizer, model, image_processor):
                     adv_output_ids = model.generate(
                         inputs_embeds=adv_input_embeds,
                         do_sample=True if args.temperature > 0 else False,
-                        # image_sizes=image_sizes,
-                        # temperature=args.temperature,
-                        # top_p=args.top_p,
                         num_beams=args.num_beams,
                         max_new_tokens=args.max_new_tokens,
                         use_cache=True
@@ -341,8 +338,6 @@ def eval_model(args, tokenizer, model, image_processor):
         logger.print_log(counter.total+q_start, ':', rlt)
         if counter.total%19==0 and counter.total>0:
             metric=counter.get_metric(logger=logger)
-            # if metric['0.2']['ACC']>0.5:
-            #     break
         adv_data_dict[idx]={
             'text':cur_prompt,
             'adv_image_tensor': adv_images.detach().cpu(), 

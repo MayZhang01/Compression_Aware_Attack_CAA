@@ -7,9 +7,6 @@ from torch.optim.lr_scheduler import StepLR
 from llava.eval.utils import loss_norm, intersection_ratio, add_square_patch, save_clip_tensor_as_image, add_border
 from llava.eval.utils import crop_and_resize_image
 from llava.eval.find_adv_util import cat_adv_embed, trace_transformer_layers_grad, get_attn_mean, BPR_loss, weighted_sign_mse_loss, mse_loss
-# from qwen2_5_vl.modeling_qwen2_5_vl import (
-#     apply_multimodal_rotary_pos_emb, repeat_kv
-# )
 from llava.eval.find_adv_util import get_patch_mask, effective_weight, get_max_min_Q
 
 def get_patch_index(
@@ -67,11 +64,9 @@ def random_split_into_k_parts(patch_indices: torch.Tensor, k: int):
     N = patch_indices.numel()
     assert k > 0, "k must be > 0"
 
-    # 随机打乱
     perm = torch.randperm(N, device=patch_indices.device)
     shuffled = patch_indices[perm]
 
-    # 计算每一份的大小
     base = N // k
     remainder = N % k
 
@@ -126,18 +121,14 @@ def opt_adv_image_patch_transf_comb(
 
     adv_image=image.clone()
     for idx in range(k):
-        # adv_image=torch.clamp(adv_image*mask_press[idx], -0.2, 1)# q2l  pope
-        adv_image=torch.clamp(adv_image*mask_press[idx], -0, 1)# q2l  vqa
-        # adv_image=torch.clamp(adv_image*mask_press[idx], -0, 1)# l2ln
+        adv_image=torch.clamp(adv_image*mask_press[idx], -0.2, 1)
         if epsilon>0:
-            # adv_image=adv_image+torch.randn_like(adv_image)*adv_image.std()*mask_press[idx]*0.3
             adv_patch=adv_patch_list[idx].to(device)
             tmp_adv_patch = adv_patch.reshape(C, 1, patch_size, 1, patch_size)
             tmp_adv_patch = tmp_adv_patch.repeat(1, grid_h, 1, grid_w, 1)
             tmp_adv_patch = tmp_adv_patch.reshape(C, grid_h*patch_size, grid_w*patch_size)
             adv_image=adv_image+mask_press[idx]*tmp_adv_patch*epsilon
  
-        # adv_image=adv_image+torch.randn_like(adv_image)*adv_image.std()*mask_raise[idx]*0.3
         adv_least=adv_least_list[idx].to(device)
         tmp_adv_least = adv_least.reshape(C, 1, patch_size, 1, patch_size)
         tmp_adv_least = tmp_adv_least.repeat(1,grid_h,1,grid_w,1)

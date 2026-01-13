@@ -183,12 +183,8 @@ def opt_adv_image_patch(
         # Extract the projection weight matrices
         # Each has shape: (hidden_dim, hidden_dim)
         
-        # 1) 得到等效浮点权重（无论是否量化/LoRA，都数值等价于模块前向）
         W_Q = effective_weight(q_proj)    # (out_q, in)
         W_K = effective_weight(k_proj)    # (out_k, in)
-
-        # print("W_Q shape:", W_Q.shape)
-        # print("W_K shape:", W_K.shape)
 
         # Select the first token embedding (for example)
         # Here x is (hidden_dim,)
@@ -207,9 +203,6 @@ def opt_adv_image_patch(
         maxQ_patch=v.unsqueeze(0).repeat(n_patch_num, 1)
         if l_patch_num>0:
             maxQ_least=v.unsqueeze(0).repeat(l_patch_num-n_patch_num, 1)
-        # maxQ_least=v.unsqueeze(0).repeat(l_patch_num, 1)
-        # noise_patch=torch.randn_like(ben_input_embeds[:,noise_patch_mask], dtype=dtype, device=device)
-        # noise_least=torch.randn_like(ben_input_embeds[:,least_patch_mask], dtype=dtype, device=device)
 
     
     if adv_steps==0:
@@ -231,7 +224,7 @@ def opt_adv_image_patch(
         adv_images=adv_images+adv_perturbs*pixel_least_mask
         if most_flag:
             adv_images=adv_images+adv_mosts*pixel_most_mask
-        # adv_images = torch.clamp(adv_images, -image_max*1.1, image_max*1.1)
+            
         save_clip_tensor_as_image(adv_images.cpu(),'2.png')
         adv_image_embeds = model.encode_images(adv_images)
         adv_input_embeds = cat_adv_embed(
@@ -335,7 +328,6 @@ def opt_adv_image_patch(
                 least_mask, 
             ] 
         )
-        # loss_list.append(torch.relu(loss_bpr-bpr_ths)*20)
         loss_dict['bpr_w']=round(loss_bpr.item(),2)
         
         loss = torch.stack(loss_list).sum()
@@ -414,8 +406,6 @@ def opt_adv_image_patch(
             logger.print_log('Patch intersection ratio satisfied, stop optimization.')
             break
         
-        # del loss, loss_cur, attn_logits_nc, attn_map_mean, down_v_logits, up_v_logits
-        # del hidden_states_list_nc, attn_scores_list_nc, attn_logits_list_nc
         del attn_logits_list_nc, attn_scores_list_nc
         del hidden_states_list_nc
         torch.cuda.empty_cache()

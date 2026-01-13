@@ -71,9 +71,6 @@ def eval_model(args, tokenizer, model, image_processor):
                     input_ids,
                     images=image_tensor.to(dtype=torch.float16, device='cuda', non_blocking=True),
                     do_sample=True if args.temperature > 0 else False,
-                    # image_sizes=image_sizes,
-                    # temperature=args.temperature,
-                    # top_p=args.top_p,
                     num_beams=args.num_beams,
                     max_new_tokens=args.max_new_tokens,
                     use_cache=True

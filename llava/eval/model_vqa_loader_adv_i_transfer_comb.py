@@ -91,8 +91,6 @@ def eval_model(args, tokenizer, model, image_processor):
     count=0
     for idx in data_dict:
         count+=1
-        # if count<19:
-        #     continue
         gt = data_dict[idx]['gt']
         if isinstance(gt, tuple):
             gt=gt[0]
@@ -137,9 +135,6 @@ def eval_model(args, tokenizer, model, image_processor):
                     input_ids,
                     images=adv_image.to(dtype=torch.float16, device='cuda', non_blocking=True),
                     do_sample=True if args.temperature > 0 else False,
-                    # image_sizes=image_sizes,
-                    # temperature=args.temperature,
-                    # top_p=args.top_p,
                     num_beams=args.num_beams,
                     max_new_tokens=args.max_new_tokens,
                     use_cache=True

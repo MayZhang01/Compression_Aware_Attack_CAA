@@ -15,7 +15,6 @@ from torch.utils.data import Dataset, DataLoader
 from PIL import Image
 import math
 import random
-# from llava.eval.find_adv import opt_adv_pro, opt_adv_image_token, opt_adv_image_text_pro
 from llava.eval.find_adv_patch import opt_adv_image_patch
 from llava.eval.find_adv_trf import opt_adv_image_patch_transf
 from llava.eval.find_adv_most import opt_adv_image_most
@@ -80,7 +79,6 @@ def eval_model(args, tokenizer, model, image_processor):
     if 'plain' in model_name and 'finetune' not in model_name.lower() and 'mmtag' not in args.conv_mode:
         args.conv_mode = args.conv_mode + '_mmtag'
         print(f'It seems that this is a plain model, but it is not using a mmtag prompt, auto switching to {args.conv_mode}.')
-
     
     layer_list=eval(args.layer_list)
     cp_list=eval(args.image_token_ratio_list)[0]
@@ -88,13 +86,6 @@ def eval_model(args, tokenizer, model, image_processor):
         sparse_flag=True
     else:
         sparse_flag=False
-
-
-    if 'textvqa' in args.question_file:
-        evaluator = TextVQAAccuracyEvaluator()
-        counter=Counter_acc(cp_list, evaluator=evaluator)
-    else:
-        counter=Counter(cp_list)
 
     top_inter_list, down_inter_list=[],[]
     for (input_ids, image_tensor, image_sizes, gt), line in tqdm(zip(data_loader, questions), total=len(questions)):
@@ -114,10 +105,8 @@ def eval_model(args, tokenizer, model, image_processor):
                 _,  
             ) = model.prepare_inputs_labels_for_multimodal_pdrop(       
                 input_ids, position_ids=None, attention_mask=None, past_key_values=None, labels=None,
-                # images=torch.tensor([0]),#
                 images=image_tensor.to(dtype=torch.float16, device='cuda', non_blocking=True), 
                 image_sizes=image_sizes,
-                # image_feature_size=(1,576,4096)
             )
             ori_prompt_len=model.model.prompt_len[0]
         
@@ -136,8 +125,7 @@ def eval_model(args, tokenizer, model, image_processor):
             adv_images, adv_input_embeds, adv_num, patch_inter_ratio, least_inter_ratio=opt_adv_image_patch(
                 model, new_input_embeds, attention_mask,
                 images=image_tensor.to(dtype=torch.float16, device='cuda', non_blocking=True), 
-                image_shape=576,        
-                # token_length_list=[new_input_embeds.shape[1]],  
+                image_shape=576,  
                 pre_prompt_length_list=[torch.where(input_ids==-200)[1][0].item()], 
                 target_layer_idx=args.target_layer_idx, 
                 adv_steps=args.adv_steps, 
@@ -162,7 +150,6 @@ def eval_model(args, tokenizer, model, image_processor):
                 model, new_input_embeds, attention_mask,
                 images=image_tensor.to(dtype=torch.float16, device='cuda', non_blocking=True), 
                 image_shape=576,        
-                # token_length_list=[new_input_embeds.shape[1]],  
                 pre_prompt_length_list=[torch.where(input_ids==-200)[1][0].item()], 
                 target_layer_idx=args.target_layer_idx, 
                 adv_steps=args.adv_steps, 
@@ -189,7 +176,6 @@ def eval_model(args, tokenizer, model, image_processor):
                 model, new_input_embeds, attention_mask,
                 images=image_tensor.to(dtype=torch.float16, device='cuda', non_blocking=True), 
                 image_shape=576,        
-                # token_length_list=[new_input_embeds.shape[1]],  
                 pre_prompt_length_list=[torch.where(input_ids==-200)[1][0].item()], 
                 target_layer_idx=args.target_layer_idx, 
                 adv_steps=args.adv_steps, 
@@ -213,7 +199,6 @@ def eval_model(args, tokenizer, model, image_processor):
                 model, new_input_embeds, attention_mask,
                 images=image_tensor.to(dtype=torch.float16, device='cuda', non_blocking=True), 
                 image_shape=576,        
-                # token_length_list=[new_input_embeds.shape[1]],  
                 pre_prompt_length_list=[torch.where(input_ids==-200)[1][0].item()], 
                 target_layer_idx=args.target_layer_idx, 
                 adv_steps=args.adv_steps, 
@@ -248,7 +233,6 @@ def eval_model(args, tokenizer, model, image_processor):
                 steps=5,
                 max_queries=20,
                 init_search_tries=50,
-                # mode=mode,
                 device = "cuda",
                 layer_list=layer_list,
                 cp=args.n_patch_num,
@@ -315,9 +299,6 @@ def eval_model(args, tokenizer, model, image_processor):
             adv_output_ids = model.generate(
                 inputs_embeds=adv_input_embeds,
                 do_sample=True if args.temperature > 0 else False,
-                # image_sizes=image_sizes,
-                # temperature=args.temperature,
-                # top_p=args.top_p,
                 num_beams=args.num_beams,
                 max_new_tokens=args.max_new_tokens,
                 use_cache=True
@@ -338,9 +319,6 @@ def eval_model(args, tokenizer, model, image_processor):
             ben_output_ids = model.generate(
                 inputs_embeds=new_input_embeds,
                 do_sample=True if args.temperature > 0 else False,
-                # image_sizes=image_sizes,
-                # temperature=args.temperature,
-                # top_p=args.top_p,
                 num_beams=args.num_beams,
                 max_new_tokens=args.max_new_tokens,
                 use_cache=True

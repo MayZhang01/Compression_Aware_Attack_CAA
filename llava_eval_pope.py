@@ -20,21 +20,17 @@ ArgsDefault = type('Args', (), {
     "model_path": "../../model_weight/llava-v1.5-7b",
     "model_base": None,
     "image_folder": '../playground/data/eval/pope/val2014',
-    # "question_file": '../playground/data/eval/pope/pope_filter_rule1_llava_qwen25_3b.jsonl',
     "question_file": '../playground/data/eval/pope/qwen25_3b_7b_llava_pope_filter_rule1.jsonl',
     "answers_file": '../playground/data/eval/pope/answers/llava-v1.5-13b.jsonl',
     "temperature": 0,
     "conv_mode": "llava_v1",
     "num_chunks":1,
     "chunk_idx":0,
-    # "top_p":None,
     "num_beams":1,
     "max_new_tokens":3,
     "target_layer_idx":2, 
-    # "layer_list":'[2]',
-    # "image_token_ratio_list":"[1, 0.7, 0.5, 0.4, 0.3, 0.2, 0.1]",#
-    "layer_list":'[2,4,6,8,10,12,14,16,18,20,22,24,26,28,30]',#,6,15
-    "image_token_ratio_list":"[[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]]",
+    "layer_list":'[2]',
+    "image_token_ratio_list":"[1, 0.7, 0.5, 0.4, 0.3, 0.2, 0.1]",#
     "adv_steps_list":"[150]",
     "adv_lr":1,
     "cut_num":1,
@@ -54,9 +50,6 @@ ArgsDefault = type('Args', (), {
     "stop_teps":40, "stop_ratio":0.8,
     "ori_bound": 7,
     "adv_path":'', "rlt_path":'', 
-    # "adv_path":"['../qwen2vl_compress/saved_data/Qwen2.5-VL-7B-Instruct_qwen25_3b_7b_llava_pope_filter_rule1_adv_image_0.15_0.15_128_100_1.0_2_False_True_1_trf_True_57_True_20.0_20.0_5.0_5.0_10.0_1.0_1.0_80_0.8_False.pt', "
-    # "'../token-compress-pyramid/saved_data/llava-v1.5-7b_qwen25_3b_7b_llava_pope_filter_rule1_adv_image_0.15_0.15_128_100_1.0_2_False_True_3_trf_True_57_True_20.0_20.0_5.0_5.0_10.0_1.0_1.0_40_0.8.pt']",
-    # "rlt_path": "../qwen2vl_compress/saved_data/Qwen2.5-VL-7B-Instruct_qwen25_3b_7b_llava_pope_filter_rule1_adv_image_0.15_0.15_128_80_1.0_2_False_True_1_trf_True_15_True_20_20_5.0_5.0_10.0_10.0_20.0_80_0.8_False.pt"
 })
 
 args = get_args(ArgsDefault)

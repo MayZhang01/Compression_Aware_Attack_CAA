@@ -52,11 +52,6 @@ def opt_adv_image_vanilla(
     fixed_input_embeds = input_embeds.detach().clone()
     
     opt_params=[]
-    
-    # adv_perturbs = torch.randn_like(images, dtype=dtype, device=device)
-    # adv_perturbs = adv_perturbs*images.std()
-    # adv_perturbs = torch.clamp(adv_perturbs, -epsilon*image_max, epsilon*image_max)
-    # opt_params.append(adv_perturbs)
 
     adv_patch = torch.randn_like(images, dtype=dtype, device=device)
     adv_patch = adv_patch*images.std()
@@ -66,7 +61,6 @@ def opt_adv_image_vanilla(
 
     patch_inter_ratio, least_inter_ratio=0,0
     if adv_steps>0: 
-        # adv_perturbs.requires_grad_(True)
         adv_patch.requires_grad_(True)
         optimizer = torch.optim.SGD(opt_params, lr=adv_lr)
         scheduler = StepLR(optimizer, step_size=20, gamma=0.5)
@@ -124,36 +118,12 @@ def opt_adv_image_vanilla(
         topk_v_tar  = topk_v_tar+v_token_start
 
         most_mask   = torch.zeros_like(all_indices, dtype=torch.bool)
-        # second_mask = torch.zeros_like(all_indices, dtype=torch.bool)
-        # least_mask  = torch.zeros_like(all_indices, dtype=torch.bool)
         most_patch_mask  = torch.zeros_like(all_indices, dtype=torch.bool)
-        # least_patch_mask  = torch.zeros_like(all_indices, dtype=torch.bool)
-        # most_mask[topk_v_tar[:most_num]] = True
-        # second_mask[topk_v_tar[most_num:most_num+second_num]] = True
-        # least_mask[topk_v_tar[most_num+second_num:]] = True
-        
-        # if l_patch_num>0:
-        #     least_patch_mask[topk_v_tar[-l_patch_num:-n_patch_num]] = True
-        #     least_mask[topk_v_tar[-l_patch_num:-n_patch_num]] = False
-        #     most_mask[topk_v_tar[-l_patch_num:-n_patch_num]] = False
-        #     second_mask[topk_v_tar[-l_patch_num:-n_patch_num]] = False
-
-        #     pixel_least_idx = topk_v_tar[-l_patch_num:-n_patch_num]-v_token_start
-        #     pixel_least_mask=get_patch_mask(
-        #         pixel_least_idx, 
-        #         image_size=image_size, 
-        #         patch_size=patch_size
-        #     )
-        #     pixel_least_mask = pixel_least_mask.to(device)
-        # else:
-        #     pixel_least_mask=torch.zeros((image_size, image_size), dtype=dtype, device=device)
 
         if n_patch_num>0:
             most_patch_mask[topk_v_tar[:n_patch_num]] = True
             most_mask[topk_v_tar[:n_patch_num]]  = True
             most_mask[t_token_start:] = True
-            # second_mask[topk_v_tar[-n_patch_num:]] = False
-            # least_mask[topk_v_tar[-n_patch_num:]] = False
 
             pixel_patch_idx = topk_v_tar[:n_patch_num]-v_token_start
             pixel_patch_mask= get_patch_mask(pixel_patch_idx, image_size=image_size, patch_size=patch_size)
@@ -167,7 +137,6 @@ def opt_adv_image_vanilla(
     else:
         update_flag=True
     
-    # last_adv_perturbs=torch.zeros_like(adv_perturbs)
     last_adv_patch=torch.zeros_like(adv_patch)
     for step in range(adv_steps):
         adv_images=images.clone()
@@ -176,8 +145,7 @@ def opt_adv_image_vanilla(
                 adv_images=adv_images*(1-pixel_patch_mask)+adv_patch*pixel_patch_mask
             else:
                 adv_images=adv_images+adv_patch*pixel_patch_mask
-        # if l_patch_num>0:
-        #     adv_images=adv_images+adv_perturbs*pixel_least_mask
+                
         save_clip_tensor_as_image(adv_images.cpu(),'2.png')
         adv_image_embeds = model.encode_images(adv_images)
         adv_input_embeds = cat_adv_embed(
@@ -247,11 +215,9 @@ def opt_adv_image_vanilla(
         
         if torch.isnan(loss):
             logger.print_log('Loss is NaN, stop optimization.')
-            # adv_perturbs=last_adv_perturbs
             adv_patch=last_adv_patch
             break
         
-        # last_adv_perturbs=adv_perturbs.detach().clone()
         last_adv_patch=adv_patch.detach().clone()
 
         if update_flag:
@@ -259,7 +225,6 @@ def opt_adv_image_vanilla(
             loss.backward()
             optimizer.step()
             scheduler.step()
-            # adv_perturbs.data=torch.clamp(adv_perturbs.data, -epsilon*image_max, epsilon*image_max)
             if patch_or_noise==False:
                 adv_patch.data=torch.clamp(adv_patch.data, -epsilon*image_max, epsilon*image_max)
         adv_label=logits.argmax(dim=1).item()
@@ -283,8 +248,7 @@ def opt_adv_image_vanilla(
             adv_images=adv_images*(1-pixel_patch_mask)+adv_patch*pixel_patch_mask
         else:
             adv_images=adv_images+adv_patch*pixel_patch_mask
-        # adv_images=adv_images+adv_perturbs*pixel_least_mask
-        # adv_images = torch.clamp(adv_images, -image_max*1.1, image_max*1.1)
+            
         adv_image_embeds = model.encode_images(adv_images)
         adv_input_embeds=cat_adv_embed(
             fixed_input_embeds, adv_image_embeds, 

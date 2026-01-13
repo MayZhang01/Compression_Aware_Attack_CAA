@@ -7,9 +7,6 @@ from torch.optim.lr_scheduler import StepLR
 from llava.eval.utils import loss_norm, intersection_ratio, add_square_patch, save_clip_tensor_as_image, add_border
 from llava.eval.utils import crop_and_resize_image
 from llava.eval.find_adv_util import cat_adv_embed, trace_transformer_layers_grad, get_attn_mean, BPR_loss, weighted_sign_mse_loss, mse_loss
-# from qwen2_5_vl.modeling_qwen2_5_vl import (
-#     apply_multimodal_rotary_pos_emb, repeat_kv
-# )
 from llava.eval.find_adv_util import get_patch_mask, effective_weight, get_max_min_Q
 
 def opt_adv_image_patch_transf(
@@ -78,13 +75,9 @@ def opt_adv_image_patch_transf(
         adv_least = torch.zeros((channel, grid_h*patch_size, grid_w*patch_size), dtype=dtype, device=device)
     else:
         adv_patch=torch.randn(channel*patch_size*patch_size, dtype=dtype, device=device)
-        # adv_patch = adv_patch*images.std()
-        # adv_patch.data=torch.clamp(adv_patch.data, -1.1*image_max, 1.1*image_max)
         adv_patch=torch.zeros_like(adv_patch)
 
         adv_least=torch.randn(channel*patch_size*patch_size, dtype=dtype, device=device)
-        # adv_least = adv_least*images.std()
-        # adv_least.data=torch.clamp(adv_least.data, -1.1*image_max, 1.1*image_max)
         adv_least=torch.zeros_like(adv_least)
 
     patch_inter_ratio, least_inter_ratio=0,0
@@ -93,14 +86,6 @@ def opt_adv_image_patch_transf(
         adv_least.requires_grad_(True)
         optimizer = torch.optim.SGD([adv_patch, adv_least], lr=adv_lr)
         scheduler = StepLR(optimizer, step_size=20, gamma=0.5)
-
-    # b_grid_h=grid_h+border_t+border_b
-    # b_grid_w=grid_w+border_l+border_r
-    # n_image_grid_thw=torch.tensor([[grid_t, b_grid_h, b_grid_w]])
-    # border_size=(b_grid_h*b_grid_w-(b_grid_h-border_t-border_b)*(b_grid_w-border_l-border_r))//4
-    # n_input_num = input_num + border_size
-    # new_t_token_start=t_token_start + border_size
-    # n_v_token_num = v_token_num+border_size
 
     most_num=int(v_token_num*0.3)
     second_num=int(v_token_num*0.4)
@@ -151,8 +136,6 @@ def opt_adv_image_patch_transf(
             start_layer=0,
             end_layer=target_layer_idx,  
             return_all=True,
-            # v_token_start=v_token_start,
-            # v_token_num=v_token_num,
         )
 
         if sparse_flag:
@@ -282,7 +265,7 @@ def opt_adv_image_patch_transf(
             tmp_adv_least = tmp_adv_least.repeat(1,grid_h,1,grid_w,1)
             tmp_adv_least = tmp_adv_least.reshape(channel, grid_h*patch_size, grid_w*patch_size)
         adv_image = tmp_r_adv_image.clone().detach() 
-        # adv_image = adv_image + torch.randn_like(image_with_border)*image_with_border.std()*0.1#*(1-mask_padded)
+
         adv_images = [
             crop_and_resize_image(adv_image, cut_loc=cut_loc, cut_size=cut_size)
             for (cut_loc, cut_size) in cut_figs
@@ -340,7 +323,7 @@ def opt_adv_image_patch_transf(
         )
         
         attn_logits_nc=torch.vstack(attn_logits_list_nc[:target_layer_idx+1]).mean(0).unsqueeze(0)
-        # attn_logits_nc = attn_logits_list_nc[target_layer_idx]
+        
         attn_logits_nc_mean = attn_logits_nc.mean(1)
         attn_logits_nc_last = attn_logits_nc_mean[:,all_txt_mask,:].mean(1)
 
@@ -357,7 +340,6 @@ def opt_adv_image_patch_transf(
                     least_mask[i],
                     patch_adv_mask[i], 
                 ],
-                # t=5 
             )
             for i in range(cut_num)
         ]
@@ -375,7 +357,6 @@ def opt_adv_image_patch_transf(
                     most_mask[i],
                     second_mask[i],
                 ],
-                # t=5
             )
             for i in range(cut_num)
         ]
@@ -441,7 +422,6 @@ def opt_adv_image_patch_transf(
             for i in range(cut_num)
         ]
         for loss_ori_p_i in loss_ori_p:
-            # lop.append((loss_ori_p_i))
             lop.append(torch.relu(ori_bound-torch.stack(loss_ori_p_i).mean()))
         loss_list.append(torch.stack(lop).mean()*w_ori_p)
         loss_dict['oir_p']=[round(torch.stack(loss_ori_p_i).mean().item(),2) for loss_ori_p_i in loss_ori_p]
@@ -459,7 +439,6 @@ def opt_adv_image_patch_transf(
             for i in range(cut_num)
         ]
         for loss_ori_l_i in loss_ori_l:
-            # lol.append((loss_ori_l_i))
             lol.append(torch.relu(ori_bound-torch.stack(loss_ori_l_i).mean()))
         loss_list.append(torch.stack(lol).mean()*w_ori_l)
         loss_dict['oir_l']=[round(torch.stack(loss_ori_l_i).mean().item(),2) for loss_ori_l_i in loss_ori_l]
@@ -476,10 +455,7 @@ def opt_adv_image_patch_transf(
         last_adv_least=adv_least.detach().clone()
 
         if update_flag:
-            # optimizer.zero_grad()
             loss.backward()
-            # optimizer.step()
-            # scheduler.step()
             adv_patch.data=adv_patch.data-torch.sign(adv_patch.grad.data)*epsilon*0.3
             adv_least.data=adv_least.data-torch.sign(adv_least.grad.data)*epsilon*0.3
             adv_patch.grad.zero_()
@@ -565,14 +541,7 @@ def opt_adv_image_patch_transf(
             'each:', round(np.mean(tar_most_ratio),3), round(np.mean(tar_second_ratio),3), round(np.mean(tar_least_ratio),3), 
             'attn_ratio:', round(sys_attn_ratio.mean().item(),3), round(image_attn_ratio.mean().item(),3), round(text_attn_ratio.mean().item(),3),
         )
-        # if np.min(patch_inter_ratio) >= 0.2 and step>60:
-        #     logger.print_log('Patch intersection ratio satisfied, stop optimization.')
-        #     break
-
-        # if (loss_bpr1.item()<=bpr_ths):# or (loss_bpr2.item()<=0.9): #  and tar_up_v_map.min()>tar_down_v_map.max()
-        #     break
         
-        # del loss, loss_cur, attn_logits_nc, attn_map_mean, down_v_logits, up_v_logits
         del adv_image, adv_images, adv_image_embeds, adv_input_embeds
         del hidden_states_list_nc, attn_scores_list_nc, attn_logits_list_nc
         del attn_logits_nc, attn_logits_nc_mean, attn_logits_nc_last
@@ -600,28 +569,18 @@ def opt_adv_image_patch_transf(
             adv_image = adv_image + pixel_second_mask[0]*tmp_adv_patch*epsilon 
         else:
             adv_image = image_with_border.clone() + tmp_adv_least*mask_padded#*epsilon
-            # adv_image = adv_image + torch.randn_like(image_with_border)*image_with_border.std()*mask_padded*0.1#*epsilon
-            # adv_image = adv_image + tmp_adv_patch*(1-mask_padded)*0.2
-            # adv_image = torch.clamp(adv_image, -image_max*1.1, image_max*1.1)
-            # adv_image_tensor = image2tensor(adv_image, grid_h, grid_w, patch_size=patch_size) 
+            
             if most_flag:
                 adv_image = adv_image + (pixel_all_l_mask[0]*(1-pixel_border_mask))*tmp_adv_patch*epsilon 
                 adv_image = adv_image + (pixel_most_mask[0]*(1-pixel_border_mask))*tmp_adv_patch*epsilon  
                 adv_image = adv_image + (pixel_second_mask[0]*(1-pixel_border_mask))*tmp_adv_patch*epsilon   
         
-        # adv_image_tensor = adv_image_tensor + (pixel_all_l_mask[0]*pixel_border_mask)*image2tensor(tmp_adv_least, grid_h, grid_w, patch_size=patch_size)*(1-epsilon)
-        # adv_image_tensor = adv_image_tensor + (pixel_most_mask[0]*pixel_border_mask)*image2tensor(tmp_adv_patch, grid_h, grid_w, patch_size=patch_size)*(1-epsilon)
-        # adv_image_tensor = adv_image_tensor + (pixel_second_mask[0]*pixel_border_mask)*image2tensor(tmp_adv_patch, grid_h, grid_w, patch_size=patch_size)*(1-epsilon)
-        # adv_image_tensor = adv_image_tensor + pixel_all_l_mask[0]*image2tensor(tmp_adv_least, grid_h, grid_w, patch_size=patch_size)*epsilon 
-        # adv_image_tensor = adv_image_tensor + pixel_most_mask[0]*image2tensor(tmp_adv_patch, grid_h, grid_w, patch_size=patch_size)*epsilon
-        # adv_image_tensor = adv_image_tensor + pixel_second_mask[0]*image2tensor(tmp_adv_patch, grid_h, grid_w, patch_size=patch_size)*epsilon
         adv_image = torch.clamp(adv_image, -image_max*1.1, image_max*1.1)
         adv_image_embed = model.encode_images(adv_image.unsqueeze(0))
         adv_input_embed = cat_adv_embed(
             fixed_input_embeds, adv_image_embed, 
             start_idx=v_token_start, end_idx=t_token_start
-        )
-    # adv_image = reshape_image(adv_image_tensor, grid_t, grid_h, grid_w, channel, temporal_patch_size, patch_size)    
+        ) 
     save_clip_tensor_as_image(adv_image.cpu(),'3.png')
     
     return adv_image, adv_input_embed, adv_input_embed.shape[1]-input_embeds.shape[1], patch_inter_ratio, least_inter_ratio, adv_patch, adv_least

@@ -47,11 +47,6 @@ def opt_adv_image_most(
 
     fixed_input_embeds = input_embeds.detach().clone()
     opt_params=[]
-    
-    # adv_perturbs = torch.randn_like(images, dtype=dtype, device=device)
-    # adv_perturbs = adv_perturbs*images.std()
-    # adv_perturbs = torch.clamp(adv_perturbs, -epsilon*image_max, epsilon*image_max)
-    # opt_params.append(adv_perturbs)
 
     adv_patch = torch.zeros_like(images, dtype=dtype, device=device)
     adv_patch = adv_patch*images.std()
@@ -144,7 +139,6 @@ def opt_adv_image_most(
         # Extract the projection weight matrices
         # Each has shape: (hidden_dim, hidden_dim)
         
-        # 1) 得到等效浮点权重（无论是否量化/LoRA，都数值等价于模块前向）
         W_Q = effective_weight(q_proj)    # (out_q, in)
         W_K = effective_weight(k_proj)    # (out_k, in)
 
@@ -164,7 +158,7 @@ def opt_adv_image_most(
 
         # Compute v = W_K.T @ q0
         v_dir = torch.matmul(W_K.T, q0.T).mean(1)   
-        v = v_dir / (v_dir.norm() + 1e-12)       # 方向对齐；若想更大logit，可再乘一个标量α（非Pre-Norm时）
+        v = v_dir / (v_dir.norm() + 1e-12)       
         maxQ_patch=v.unsqueeze(0).repeat(n_patch_num, 1)
 
     
@@ -181,7 +175,7 @@ def opt_adv_image_most(
             adv_images=adv_images*(1-pixel_patch_mask)+adv_patch*pixel_patch_mask
         else:
             adv_images=adv_images+adv_patch*pixel_patch_mask
-        # adv_images = torch.clamp(adv_images, -image_max*1.1, image_max*1.1)
+            
         save_clip_tensor_as_image(adv_images.cpu(),'2.png')
         adv_image_embeds = model.encode_images(adv_images)
         adv_input_embeds = cat_adv_embed(
@@ -246,8 +240,6 @@ def opt_adv_image_most(
         if torch.isnan(loss):
             logger.print_log('Loss is NaN, stop optimization.')
             adv_patch=last_adv_patch
-            if most_flag:
-                adv_mosts=last_adv_mosts
             break
         
         last_adv_patch=adv_patch.detach().clone()
@@ -260,9 +252,6 @@ def opt_adv_image_most(
             if patch_or_noise==False:
                 adv_patch.data=torch.clamp(adv_patch.data, -epsilon*image_max, epsilon*image_max)
         
-        attn_sum = attn_scores_nc_last.sum()
-        
-        
         _, topk_image  = torch.topk(attn_scores_nc_last[:, v_token_start:t_token_start], k=v_token_num)
         topk_image=topk_image+v_token_start
 
@@ -274,16 +263,6 @@ def opt_adv_image_most(
             'inter_ratio', patch_inter_ratio, 
         )
 
-        # if n_patch_num==0:
-        #     patch_inter_ratio=stop_ratio+0.1
-        # if l_patch_num==0:
-        #     least_inter_ratio=stop_ratio+0.1
-        # if patch_inter_ratio >= stop_ratio and least_inter_ratio >= stop_ratio and step>stop_teps:
-        #     logger.print_log('Patch intersection ratio satisfied, stop optimization.')
-            # break
-        
-        # del loss, loss_cur, attn_logits_nc, attn_map_mean, down_v_logits, up_v_logits
-        # del hidden_states_list_nc, attn_scores_list_nc, attn_logits_list_nc
         del attn_logits_list_nc, attn_scores_list_nc
         del hidden_states_list_nc
         torch.cuda.empty_cache()
@@ -294,7 +273,7 @@ def opt_adv_image_most(
             adv_images=adv_images*(1-pixel_patch_mask)+adv_patch*pixel_patch_mask
         else:
             adv_images=adv_images+adv_patch*pixel_patch_mask
-        # adv_images = torch.clamp(adv_images, -image_max*1.1, image_max*1.1)
+            
         adv_image_embeds = model.encode_images(adv_images)
         adv_input_embeds=cat_adv_embed(
             fixed_input_embeds, adv_image_embeds, 

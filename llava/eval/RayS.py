@@ -68,10 +68,6 @@ class RaySAttack:
         return x
 
     def _query(self, x, input_ids) -> bool:
-        """
-        [修改点 3] 引入输入多样性 (Input Diversity)
-        在攻击过程中随机对输入图像进行变换，迫使攻击寻找更鲁棒的方向。
-        """
         self.queries += 1
         
         x_input = (x.clone() - self.mean) / self.std
@@ -95,8 +91,6 @@ class RaySAttack:
                 hi = mid
             else:
                 lo = mid
-            # if hi<self.epsilon:
-            #     break
         return hi
 
     def _find_initial_alpha(self, x0, text,d):
@@ -132,9 +126,6 @@ class RaySAttack:
         # Here we assume the goal is: make is_adv_fn(x) == True.
         if self._query(x0, input_ids):
             logger.print_log(f"[RayS] The clean input is already adversarial under the criterion. Queries: {self.queries}")
-            # x_tmp=(x0 - self.mean) / self.std
-            # save_clip_tensor_as_image(x_tmp.cpu(),'3.png')
-            # return x0, True
 
         # for i in range(5):
         # Initialize a random sign direction d in {-1, +1}^D
@@ -146,9 +137,6 @@ class RaySAttack:
 
         # 1) Find an initial adversarial point along the current ray
         alpha_hi = self._find_initial_alpha(x0, input_ids, d)
-        # if alpha_hi is not None:
-        #     break
-        # logger.print_log("Initialize iter: "+str(i))
 
         if alpha_hi is None:
             logger.print_log(f"[RayS] Failed to find an initial adversarial point along the initial ray. Queries: {self.queries}")
@@ -163,14 +151,6 @@ class RaySAttack:
 
         logger.print_log(f"[RayS] Init alpha = {best_alpha:.6f}, queries = {self.queries}")
 
-        # if best_alpha <= self.epsilon:   
-        #     logger.print_log(f"[RayS] Early Success! Alpha {best_alpha:.4f} <= {self.epsilon}, Queries: {self.queries}")
-        #     best_adv=(best_adv - self.mean) / self.std
-        #     save_clip_tensor_as_image(best_adv.cpu(),'3.png')
-        #     return best_adv, True
-
-        # 2) Iteratively refine the direction by flipping signs
-        #    This is a simplified coordinate-flip strategy.
         flat_d = d.view(-1)
         D = flat_d.numel()
 
@@ -181,32 +161,18 @@ class RaySAttack:
             if self.queries >= self.max_queries:
                 break
 
-            # Pick a block to flip (you can schedule block size as in the paper)
-            # Here we use a simple decreasing block size schedule.
-            # block = max(1, D // (2 ** (1 + it // 100)))
-            # start = (it * block) % D
-            # idx = torch.arange(start, min(start + block, D), device=self.device)
-
-            # 1. 计算当前层级总共有多少块 (2^level)
             num_blocks_at_level = 2 ** curr_level
 
-            # 2. 计算每一块的大小 (向上取整，防止除不尽漏掉像素)
             block_size = (D + num_blocks_at_level - 1) // num_blocks_at_level
 
-            # 3. 计算当前块的起始和结束索引
             start = curr_block_idx * block_size
-            end = min(start + block_size, D) # 确保不越界
+            end = min(start + block_size, D) 
 
-            # 生成需要翻转的索引
             if start >= D: 
                 curr_block_idx = 0
                 curr_level += 1
                 continue
             idx = torch.arange(start, end, device=self.device)
-
-            #随机反转
-            # n_flip = end-start #max(1, D // (2 ** (1 + it // 500)))
-            # idx = torch.randperm(D, device=self.device)[:n_flip]
 
             # Try flipping this block
             d_try_flat = flat_d.clone()
@@ -226,7 +192,6 @@ class RaySAttack:
 
                     logger.print_log(f"[RayS] iter={it} improved alpha={best_alpha:.4f} query times={self.queries}")
                     
-                    # 循环中一旦达标，立即算作成功返回
                     if best_alpha <= self.epsilon:
                         logger.print_log(f"[RayS] Success! Alpha reached {best_alpha:.4f}, Queries: {self.queries}")
                         best_adv = self._clip(x0 + self.epsilon * d_try)
@@ -234,16 +199,11 @@ class RaySAttack:
                         save_clip_tensor_as_image(best_adv.cpu(),'3.png')
                         return best_adv, True
 
-            # # --- [新增] 更新状态，准备下一次迭代 ---
-            # # 如果这层的所有块都遍历完了，进入下一层（块变得更小更细）
             curr_block_idx += 1
             if curr_block_idx >= num_blocks_at_level:
                 curr_block_idx = 0
                 curr_level += 1
-            # # -----------------------------------
 
-        # [修改] 循环结束后的最终审判
-        # 虽然我们找到了 best_adv，但如果它的距离依然很大，这不算“攻击成功”
         is_success = (best_alpha <= self.epsilon)
         
         status = "SUCCESS" if is_success else "FAILED"
