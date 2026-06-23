@@ -1,4 +1,4 @@
-# Compression-Aware Attack for LLaLA
+# Compression-Aware Attack for LLaVA
 
 This repository evaluates large vision-language models (LVLMs) for robustness under visual token compression using a Compression Aware Attack (CAA).
 
